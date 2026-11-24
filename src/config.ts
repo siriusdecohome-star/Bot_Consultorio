@@ -69,6 +69,18 @@ export const config = {
     appSecret: env("WHATSAPP_APP_SECRET"),
     /** Versión de la Graph API (la que usa el ejemplo de Meta en "API Setup"; verificar si cambia) */
     graphVersion: env("WHATSAPP_GRAPH_VERSION", "v25.0"),
+    /** Plantillas aprobadas por Meta: se usan solo si la ventana de 24 h está cerrada */
+    templateReminder: env("WHATSAPP_TEMPLATE_REMINDER", "recordatorio_turno"),
+    templateFollowup: env("WHATSAPP_TEMPLATE_FOLLOWUP", "seguimiento_promo"),
+    templateLang: env("WHATSAPP_TEMPLATE_LANG", "es"),
+  },
+
+  reminders: {
+    enabled: env("REMINDERS_ENABLED", "true") !== "false",
+    /** Cada cuántos segundos se revisan los turnos */
+    intervalSec: num("REMINDERS_INTERVAL_SEC", 60),
+    /** Horas sin respuesta tras las que se escribe a un lead que no agendó (menos de 24 para seguir dentro de la ventana de WhatsApp) */
+    followupAfterHours: num("FOLLOWUP_AFTER_HOURS", 20),
   },
 
   port: num("PORT", 3000),

@@ -159,6 +159,19 @@ button { font: inherit; cursor: pointer; }
 .msg .ticks.read { color: var(--wa-tick); }
 .msg.error { background: #ffe1e1; }
 
+/* Botones de respuesta rápida pegados al mensaje, como en WhatsApp */
+.msg-wrap { align-self: flex-start; max-width: 82%; display: flex; flex-direction: column; gap: 2px; }
+.msg-wrap .msg { max-width: 100%; align-self: stretch; }
+.msg-wrap .msg.has-buttons { border-bottom-left-radius: 2px; border-bottom-right-radius: 2px; }
+.reply-btn {
+  background: var(--wa-in); border: 0; border-radius: 2px; color: #027eb5;
+  font-size: 14px; font-weight: 500; padding: 9px 8px; text-align: center;
+  box-shadow: 0 1px 0.5px #0b141a22;
+}
+.reply-btn:last-child { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+.reply-btn:hover { background: #f5f6f6; }
+.reply-btn:disabled { color: #8696a0; cursor: default; }
+
 .typing { align-self: flex-start; background: var(--wa-in); border-radius: 8px; border-top-left-radius: 0; padding: 10px 12px; margin-top: 6px; box-shadow: 0 1px 0.5px #0b141a22; display: inline-flex; gap: 4px; }
 .typing i { width: 7px; height: 7px; border-radius: 50%; background: #9aa5ab; animation: blink 1.2s infinite; }
 .typing i:nth-child(2) { animation-delay: .2s; }
@@ -271,10 +284,11 @@ button { font: inherit; cursor: pointer; }
 .foot { text-align: center; font-size: 12px; color: #5d8270; padding: 6px 0 16px; }
 
 /* ---------- Modo grabación: solo teléfono y agenda ---------- */
-body.rec .controls > :not(#btn-rec) { display: none; }
+body.rec .controls > :not(#btn-rec):not(#btn-remind):not(#btn-followup) { display: none; }
 body.rec .brand p, body.rec .foot { visibility: hidden; }
-body.rec #btn-rec { opacity: .25; }
-body.rec #btn-rec:hover { opacity: 1; }
+/* En grabación quedan casi invisibles, pero se pueden usar para disparar avisos durante el video */
+body.rec #btn-rec, body.rec #btn-remind, body.rec #btn-followup { opacity: .18; }
+body.rec #btn-rec:hover, body.rec #btn-remind:hover, body.rec #btn-followup:hover { opacity: 1; }
 
 .hidden { display: none !important; }
 

@@ -2,8 +2,8 @@ import { privacyLine, privacyNotice } from "../data/knowledge.js";
 import { config } from "../config.js";
 import type { LlmProvider, ToolCallLog } from "../llm/types.js";
 import type { CalendarService } from "../services/calendar.js";
-import type { Channel, Store, TurnMetric } from "../services/store.js";
-import { toLocal, type Clock, systemClock } from "../services/time.js";
+import type { Channel, ChatMessage, Store, TurnMetric } from "../services/store.js";
+import { human, toLocal, type Clock, systemClock } from "../services/time.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 import { makeExecutor, toolDefs } from "./tools.js";
 import { withinOpeningHours } from "../services/calendar.js";
@@ -46,6 +46,25 @@ export class BotEngine {
     return `${this.provider.name}:${this.provider.model}`;
   }
 
+  /**
+   * Respuestas a botones que no necesitan IA: confirmar asistencia y "más adelante".
+   * Son instantáneas y no tienen costo. Cancelar o cambiar pasan al modelo, que usa las herramientas.
+   */
+  private async quickReply(pending: ChatMessage["meta"], text: string, patientId: string): Promise<string | null> {
+    const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N} ]/gu, "").trim();
+    if (pending?.appointmentId && /^(confirmo|confirmar|si confirmo|si|confirmado|si voy|voy|ahi estare)$/.test(t)) {
+      const a = await this.store.getAppointment(pending.appointmentId);
+      if (!a || a.patientId !== patientId || !["confirmada", "pendiente"].includes(a.status)) return null;
+      await this.store.updateAppointment(a.id, { confirmedByPatient: true, status: "confirmada" });
+      const name = a.patientName.replace(/\s*\(demo\)/i, "").split(/\s+/)[0];
+      return `¡Gracias, ${name}! ✅ Su asistencia quedó confirmada para el *${human(toLocal(a.start))}*. ¡Lo esperamos!`;
+    }
+    if (pending?.kind === "followup" && /^(mas adelante|despues|ahora no|no gracias|no)$/.test(t)) {
+      return "¡Perfecto! Cuando quiera, escríbame y le busco un turno. 😊";
+    }
+    return null;
+  }
+
   async handle(msg: IncomingMessage): Promise<BotReply> {
     let patient = await this.store.getOrCreatePatient(msg.userId, msg.channel, msg.source ?? null);
     const conv = await this.store.getOrCreateConversation(patient, msg.channel);
@@ -67,6 +86,24 @@ export class BotEngine {
       for (const t of out) conv.messages.push({ role: "bot", text: t, at });
       await this.store.saveConversation(conv);
       return { messages: out, conversationId: conv.id, handedOff: true, toolCalls: [] };
+    }
+
+    // Respuesta a un aviso que mandó el bot (recordatorio o seguimiento).
+    const lastBot = [...conv.messages].slice(0, -1).reverse().find((m) => m.role === "bot");
+    const pending = lastBot?.meta;
+    const quick = await this.quickReply(pending, msg.text, patient.id);
+    if (quick) {
+      out.push(quick);
+      for (const t of out) conv.messages.push({ role: "bot", text: t, at });
+      await this.store.saveConversation(conv);
+      return { messages: out, conversationId: conv.id, handedOff: false, toolCalls: [] };
+    }
+    let reminderNote = "";
+    if (pending?.appointmentId) {
+      const a = await this.store.getAppointment(pending.appointmentId);
+      if (a) reminderNote = `El último mensaje del bot fue un RECORDATORIO del turno id ${a.id} (${human(toLocal(a.start))}, ${a.treatment}). Si el paciente quiere cancelar o cambiar el horario, se refiere a ese turno.`;
+    } else if (pending?.kind === "followup") {
+      reminderNote = "El último mensaje del bot fue un SEGUIMIENTO de la promoción: el paciente no había agendado. Si acepta, ofrézcale horarios concretos.";
     }
 
     // Si cambió el proveedor (p. ej. de mock a Claude), el historial nativo no es compatible: se reinicia.
@@ -91,6 +128,7 @@ export class BotEngine {
           (config.privacyMode === "inline" ? ` Cierre con esta línea exacta: «${privacyLine}»` : "")
         : "",
       patient.source ? `Llegó por: ${patient.source}.` : "",
+      reminderNote,
     ].filter(Boolean).join("\n");
 
     const t0 = performance.now();

@@ -55,6 +55,57 @@ function bubble(text, side, opts = {}) {
   return el;
 }
 
+/** Mensaje del bot con botones de respuesta rápida (recordatorios, seguimiento). */
+function bubbleWithButtons(text, buttons) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg-wrap";
+  const el = document.createElement("div");
+  el.className = `msg in${state.lastSide !== "in" ? " first" : ""} has-buttons`;
+  el.innerHTML = `${fmt(text)}<span class="meta">${hhmm()}</span>`;
+  wrap.appendChild(el);
+  for (const title of buttons) {
+    const b = document.createElement("button");
+    b.className = "reply-btn";
+    b.textContent = title;
+    b.addEventListener("click", () => {
+      wrap.querySelectorAll(".reply-btn").forEach((x) => (x.disabled = true));
+      send(title);
+    });
+    wrap.appendChild(b);
+  }
+  chat.appendChild(wrap);
+  state.lastSide = "in";
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/** Mensajes que el bot envía por su cuenta: se consultan cada pocos segundos. */
+async function pollOutbox() {
+  if (!state.sessionId || state.busy) return;
+  try {
+    const r = await fetch(`/api/outbox?sessionId=${encodeURIComponent(state.sessionId)}`);
+    const { messages } = await r.json();
+    for (const m of messages ?? []) {
+      setTyping(true);
+      await sleep(900);
+      setTyping(false);
+      if (m.buttons?.length) bubbleWithButtons(m.text, m.buttons);
+      else bubble(m.text, "in");
+    }
+  } catch {}
+}
+
+async function demo(path, okMsg) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: state.sessionId }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) return toast(data.error ?? "No se pudo enviar", true);
+  toast(okMsg);
+  setTimeout(pollOutbox, 300);
+}
+
 let typingEl = null;
 function setTyping(on) {
   $("#wa-status").textContent = on ? "escribiendo…" : "en línea";
@@ -270,6 +321,8 @@ function addMin(t, n) {
 $("#form").addEventListener("submit", (e) => { e.preventDefault(); send(input.value); });
 $("#quick").addEventListener("click", (e) => { const q = e.target.closest("button")?.dataset.q; if (q) send(q); });
 $("#btn-new").addEventListener("click", newSession);
+$("#btn-remind").addEventListener("click", () => demo("/api/demo/remind", "⏰ Recordatorio enviado al paciente"));
+$("#btn-followup").addEventListener("click", () => demo("/api/demo/followup", "📣 Seguimiento enviado al lead"));
 $("#wk-prev").addEventListener("click", () => { state.weekFrom = addDays(state.weekFrom, -7); state.prevAgenda = null; loadAgenda(); });
 $("#wk-next").addEventListener("click", () => { state.weekFrom = addDays(state.weekFrom, 7); state.prevAgenda = null; loadAgenda(); });
 $("#tg-agenda").addEventListener("change", (e) => $("#agenda-col").classList.toggle("hidden", !e.target.checked));
@@ -297,5 +350,6 @@ $("#clock").textContent = hhmm();
   if (params.get("modo") === "grabacion") $("#btn-rec").click();
   await newSession();
   await loadAgenda();
-  setInterval(() => !state.busy && loadAgenda({ announce: true }), 20000); // refresca si alguien edita el calendario a mano
+  setInterval(() => !state.busy && loadAgenda({ announce: true }), 20000);
+  setInterval(pollOutbox, 3000); // refresca si alguien edita el calendario a mano
 })();

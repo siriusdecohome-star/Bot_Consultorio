@@ -36,6 +36,28 @@ npm run test:whatsapp   # prueba el canal con avisos simulados y firmados (sin l
 
 El webhook valida la firma `X-Hub-Signature-256`, responde 200 al instante, ignora avisos repetidos y procesa los mensajes de cada paciente en orden.
 
+## Recordatorios y seguimiento (etapa 5)
+
+El servidor revisa la agenda cada 60 s (`REMINDERS_INTERVAL_SEC`):
+
+| Aviso | Cuándo | Botones |
+|---|---|---|
+| Recordatorio 24 h | Faltan ≤ 24 h (se omite si se reservó con menos de 24 h) | ✅ Confirmo · 📅 Cambiar horario · ❌ Cancelar |
+| Recordatorio 2 h | Faltan ≤ 2 h | ✅ Confirmo · ❌ Cancelar (sin botones si ya confirmó) |
+| Seguimiento de lead | Llegó por una promo, no agendó y no escribe hace `FOLLOWUP_AFTER_HOURS` (20 h) | 📅 Sí, buscar turno · Más adelante |
+
+- **Confirmar** y **Más adelante** se resuelven sin IA (instantáneo, sin costo). **Cancelar** libera el horario y ofrece reprogramar; **Cambiar horario** ofrece horarios y mueve el turno.
+- Cada aviso se marca como enviado: no se repite aunque el servidor se reinicie.
+- En WhatsApp, si pasaron más de 24 h desde el último mensaje del paciente, Meta solo permite **plantillas aprobadas**: el bot cambia solo a la plantilla (`npm run wa:templates` las crea en Meta).
+
+```powershell
+npm run test:reminders            # 10 casos con reloj simulado (lunes → miércoles)
+npm run remind -- --latest        # recordatorio YA a la última conversación de WhatsApp (para el video)
+npm run remind -- --followup      # seguimiento YA a la última conversación de WhatsApp
+```
+
+En el simulador: botones **⏰ Recordatorio** y **📣 Seguimiento** (siguen disponibles, casi invisibles, en modo grabación).
+
 ## Usar IA real
 
 1. Copiar `.env.example` a `.env`.

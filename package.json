@@ -15,7 +15,10 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "test:whatsapp": "tsx tests/whatsapp.ts",
-    "wa:subscribe": "tsx scripts/wa-subscribe.ts"
+    "wa:subscribe": "tsx scripts/wa-subscribe.ts",
+    "remind": "tsx scripts/remind.ts",
+    "wa:templates": "tsx scripts/wa-templates.ts",
+    "test:reminders": "tsx tests/reminders.ts"
   },
   "keywords": [],
   "author": "",

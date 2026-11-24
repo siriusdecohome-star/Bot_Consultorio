@@ -9,6 +9,9 @@ import { createServices } from "./services/factory.js";
 import { seedCalendar } from "./data/seed.js";
 import { clinic } from "./data/knowledge.js";
 import { localKey, systemClock, toLocal, TZ } from "./services/time.js";
+import { ChannelNotifier, WebOutbox } from "./services/notifier.js";
+import { followupMessage, ReminderService } from "./bot/reminders.js";
+import type { WhatsAppSender } from "./channels/whatsappClient.js";
 
 /**
  * Servidor HTTP: sirve el simulador web y la API que usa.
@@ -31,18 +34,20 @@ app.use(express.static(path.join(ROOT, "public")));
 // --- Canal WhatsApp (etapa 4): se activa si el .env tiene token e id del número ---
 const wa = config.whatsapp;
 let whatsappStatus = "desactivado (falta WHATSAPP_VERIFY_TOKEN)";
+let waSender: WhatsAppSender | null = null;
 if (wa.verifyToken) {
   const { WhatsAppCloudClient } = await import("./channels/whatsappClient.js");
   const { createWhatsAppRouter } = await import("./channels/whatsappWebhook.js");
   const canSend = Boolean(wa.token && wa.phoneNumberId);
   // Sin token igual se monta el webhook: Meta puede verificarlo, y los mensajes
   // entrantes se registran en la terminal aunque todavía no se puedan responder.
-  const sender = canSend ? new WhatsAppCloudClient() : {
+  const sender: WhatsAppSender = canSend ? new WhatsAppCloudClient() : {
     async sendText(to: string) { console.log(`[whatsapp] (sin WHATSAPP_TOKEN) no se pudo responder a ${to.slice(0, 4)}•••`); },
     async sendButtons(to: string) { console.log(`[whatsapp] (sin WHATSAPP_TOKEN) no se pudo responder a ${to.slice(0, 4)}•••`); },
     async sendTemplate() {},
     async markReadAndTyping() {},
   };
+  if (canSend) waSender = sender;
   app.use("/webhook/whatsapp", createWhatsAppRouter({ bot, sender, verifyToken: wa.verifyToken, appSecret: wa.appSecret }));
   whatsappStatus = [
     "webhook en /webhook/whatsapp",
@@ -50,6 +55,62 @@ if (wa.verifyToken) {
     wa.appSecret ? "" : "⚠ sin WHATSAPP_APP_SECRET: no se valida la firma",
   ].filter(Boolean).join(" · ");
 }
+
+// --- Recordatorios y seguimiento (etapa 5) ---
+const outbox = new WebOutbox();
+const reminders = new ReminderService(services.store, new ChannelNotifier({ whatsapp: waSender, web: outbox }), systemClock);
+let remindersStatus = "desactivados (REMINDERS_ENABLED=false)";
+if (config.reminders.enabled) {
+  const tick = async () => {
+    try {
+      const r = await reminders.sweep();
+      const n = r.reminder24 + r.reminder2 + r.followups;
+      if (n || r.errors.length) {
+        console.log(`[recordatorios] 24 h: ${r.reminder24} · 2 h: ${r.reminder2} · seguimientos: ${r.followups}${r.errors.length ? ` · errores: ${r.errors.join("; ")}` : ""}`);
+      }
+    } catch (err) {
+      console.error("[recordatorios]", (err as Error).message);
+    }
+  };
+  setInterval(tick, config.reminders.intervalSec * 1000);
+  setTimeout(tick, 5000);
+  remindersStatus = `cada ${config.reminders.intervalSec} s · seguimiento de leads a las ${config.reminders.followupAfterHours} h`;
+}
+
+const validSession = (s: unknown): s is string => typeof s === "string" && /^web:[a-z0-9-]{4,40}$/i.test(s);
+
+// El simulador consulta esta bandeja para mostrar los mensajes que el bot envía por su cuenta.
+app.get("/api/outbox", (req, res) => {
+  if (!validSession(req.query.sessionId)) return res.status(400).json({ error: "Sesión inválida" });
+  res.json({ messages: outbox.take(req.query.sessionId) });
+});
+
+/** Demo: dispara ya el recordatorio del próximo turno de esta sesión web (para el video). */
+app.post("/api/demo/remind", async (req, res) => {
+  const { sessionId, kind } = req.body ?? {};
+  if (!validSession(sessionId)) return res.status(400).json({ error: "Sesión inválida" });
+  const patient = await services.store.getOrCreatePatient(sessionId, "web");
+  const next = (await services.store.listAppointments({
+    patientId: patient.id, from: new Date().toISOString(), status: ["confirmada", "pendiente"],
+  }))[0];
+  if (!next) return res.status(404).json({ error: "Esta conversación no tiene turnos próximos. Reserve uno primero." });
+  await reminders.remindNow(next.id, kind === "reminder2" ? "reminder2" : "reminder24");
+  res.json({ ok: true });
+});
+
+/** Demo: dispara ya el seguimiento de lead de esta sesión web. */
+app.post("/api/demo/followup", async (req, res) => {
+  const { sessionId } = req.body ?? {};
+  if (!validSession(sessionId)) return res.status(400).json({ error: "Sesión inválida" });
+  const patient = await services.store.getOrCreatePatient(sessionId, "web", "promo-noviembre");
+  const msg = followupMessage(patient.name);
+  const conv = await services.store.getOrCreateConversation(patient, "web");
+  outbox.push(sessionId, msg);
+  conv.messages.push({ role: "bot", text: msg.text, at: new Date().toISOString(), meta: { kind: "followup" } });
+  conv.privacyShown = true;
+  await services.store.saveConversation(conv);
+  res.json({ ok: true });
+});
 
 // --- Límite de uso por IP: protege el saldo de la API si se comparte la demo en público ---
 const WINDOW_MS = 10 * 60 * 1000;
@@ -81,7 +142,7 @@ app.post("/api/session", (_req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   const { sessionId, text, source } = req.body ?? {};
-  if (typeof sessionId !== "string" || !/^web:[a-z0-9-]{4,40}$/i.test(sessionId)) {
+  if (!validSession(sessionId)) {
     return res.status(400).json({ error: "Sesión inválida" });
   }
   if (typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "Mensaje vacío" });
@@ -158,4 +219,5 @@ app.listen(config.port, () => {
   console.log(`Simulador listo en http://localhost:${config.port}`);
   console.log(`IA: ${bot.providerName} · base: ${services.storeKind} · agenda: ${services.calendarKind} · zona: ${TZ()}`);
   console.log(`WhatsApp: ${whatsappStatus}`);
+  console.log(`Recordatorios: ${remindersStatus}`);
 });

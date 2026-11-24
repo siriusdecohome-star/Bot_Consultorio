@@ -75,6 +75,16 @@ export const toolDefs: ToolDef[] = [
     },
   },
   {
+    name: "confirmar_asistencia",
+    description: "Registra que el paciente confirmó que asistirá a un turno (por ejemplo, al responder un recordatorio).",
+    parameters: {
+      type: "object",
+      properties: { cita_id: { type: "string", description: "Id del turno (de ver_citas_paciente o del recordatorio)." } },
+      required: ["cita_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "derivar_a_humano",
     description:
       "Deriva la conversación a una persona del consultorio con un resumen. Úsela si el paciente lo pide, si hay una consulta clínica, una queja, una urgencia o algo que no sabe responder.",
@@ -248,6 +258,13 @@ export function makeExecutor(ctx: ToolContext) {
             return { ok: true, anterior: view(a), nueva: view(nueva) };
           });
         });
+      }
+
+      case "confirmar_asistencia": {
+        const a = await ownAppointment(String(input.cita_id));
+        if (!a || !["confirmada", "pendiente"].includes(a.status)) return { ok: false, error: "cita_no_encontrada" };
+        await ctx.store.updateAppointment(a.id, { confirmedByPatient: true, status: "confirmada" });
+        return { ok: true, cita: view(a) };
       }
 
       case "derivar_a_humano": {

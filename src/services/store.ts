@@ -35,6 +35,8 @@ export interface ChatMessage {
   role: "patient" | "bot" | "human" | "system";
   text: string;
   at: string;
+  /** Mensajes que envía el bot por iniciativa propia (recordatorios, seguimiento). */
+  meta?: { kind: "reminder24" | "reminder2" | "followup"; appointmentId?: string };
 }
 
 export interface Conversation {
@@ -105,11 +107,14 @@ export interface Store {
   listMetrics(): Promise<TurnMetric[]>;
 }
 
-const now = () => new Date().toISOString();
 let seq = 0;
 const id = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
 
 export class InMemoryStore implements Store {
+  /** El reloj es inyectable para que las pruebas con tiempo simulado fechen bien los registros. */
+  constructor(private clock: () => Date = () => new Date()) {}
+  private now = () => this.clock().toISOString();
+
   patients = new Map<string, Patient>();
   conversations = new Map<string, Conversation>();
   appointments = new Map<string, Appointment>();
@@ -119,7 +124,7 @@ export class InMemoryStore implements Store {
   async getOrCreatePatient(phone: string, channel: Channel, source: string | null = null) {
     const found = [...this.patients.values()].find((p) => p.phone === phone);
     if (found) return found;
-    const p: Patient = { id: id("pac"), phone, name: null, channel, source, createdAt: now() };
+    const p: Patient = { id: id("pac"), phone, name: null, channel, source, createdAt: this.now() };
     this.patients.set(p.id, p);
     return p;
   }
@@ -137,13 +142,13 @@ export class InMemoryStore implements Store {
     if (found) return found;
     const c: Conversation = {
       id: id("conv"), patientId: patient.id, channel, llmState: [], llmProvider: "",
-      messages: [], privacyShown: false, handedOff: false, createdAt: now(), updatedAt: now(),
+      messages: [], privacyShown: false, handedOff: false, createdAt: this.now(), updatedAt: this.now(),
     };
     this.conversations.set(c.id, c);
     return c;
   }
   async saveConversation(c: Conversation) {
-    this.conversations.set(c.id, { ...c, updatedAt: now() });
+    this.conversations.set(c.id, { ...c, updatedAt: this.now() });
   }
   async listConversations() {
     return [...this.conversations.values()];
@@ -154,7 +159,7 @@ export class InMemoryStore implements Store {
     if (active(a.status) && [...this.appointments.values()].some((x) => active(x.status) && x.start === a.start)) {
       throw new SlotTakenError(); // mismo comportamiento que el índice único de Supabase
     }
-    const ap: Appointment = { ...a, id: id("cita"), createdAt: now() };
+    const ap: Appointment = { ...a, id: id("cita"), createdAt: this.now() };
     this.appointments.set(ap.id, ap);
     return ap;
   }
@@ -180,7 +185,7 @@ export class InMemoryStore implements Store {
   }
 
   async createHandoff(h: Omit<Handoff, "id" | "createdAt" | "status">) {
-    const x: Handoff = { ...h, id: id("der"), status: "abierta", createdAt: now() };
+    const x: Handoff = { ...h, id: id("der"), status: "abierta", createdAt: this.now() };
     this.handoffs.push(x);
     return x;
   }
