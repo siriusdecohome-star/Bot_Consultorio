@@ -15,6 +15,19 @@ if (!token || !waba) {
   process.exit(1);
 }
 
+// npm run wa:templates -- --status → solo muestra el estado de revisión
+if (process.argv.includes("--status")) {
+  for (const name of [templateReminder, templateFollowup]) {
+    const res = await fetch(`https://graph.facebook.com/${graphVersion}/${waba}/message_templates?name=${name}&fields=name,status,category,language,rejected_reason`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await res.json()) as any;
+    const t = data?.data?.find((x: any) => x.name === name && x.language === templateLang);
+    console.log(t ? `${t.status === "APPROVED" ? "✅" : t.status === "REJECTED" ? "❌" : "⏳"} ${name} (${t.category}): ${t.status}${t.rejected_reason && t.rejected_reason !== "NONE" ? ` · motivo: ${t.rejected_reason}` : ""}` : `⚪ ${name}: no existe`);
+  }
+  process.exit(0);
+}
+
 const templates = [
   {
     name: templateReminder,
