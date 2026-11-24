@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>Caso de estudio · Bot de citas con IA para consultorios</title>
+<title>Caso de estudio · Asistente de WhatsApp con IA para clínicas dentales</title>
 <style>
   @page { size: A4; margin: 16mm 15mm 16mm; }
   :root { --ink: #10211a; --muted: #5b6f66; --green: #0f7a4f; --green2: #25d366; --lime: #c8f25a; --line: #d9e4de; --soft: #f2f7f4; --dark: #0b1f17; }
@@ -17,22 +17,24 @@
   li { margin: 2px 0; }
   section { margin: 0 0 16px; }
   h2 { break-after: avoid; }
-  tr, .box, .arch, .stat, li { break-inside: avoid; }
+  tr, .box, .arch, .stat, li, figure { break-inside: avoid; }
   table { break-inside: auto; }
   .page-break { break-before: page; }
   .muted { color: var(--muted); }
   small { font-size: 8.6pt; }
 
-  /* Portada */
-  .cover { background: var(--dark); color: #e8f3ec; border-radius: 14px; padding: 26px 26px 22px; margin-bottom: 16px; }
+  .cover { background: var(--dark); color: #e8f3ec; border-radius: 14px; padding: 26px 26px 22px; margin-bottom: 14px; }
   .cover .tag { display: inline-block; font-size: 8.5pt; letter-spacing: .8px; text-transform: uppercase; color: var(--lime); border: 1px solid #2c5a45; border-radius: 999px; padding: 2px 10px; margin-bottom: 10px; }
-  .cover h1 { font-size: 23pt; font-weight: 700; margin-bottom: 8px; }
-  .cover p { color: #b9d3c6; font-size: 11pt; margin: 0; max-width: 150mm; }
+  .cover h1 { font-size: 22pt; font-weight: 700; margin-bottom: 8px; }
+  .cover p { color: #b9d3c6; font-size: 11pt; margin: 0; max-width: 160mm; }
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
   .stat { background: #12302a; border-radius: 10px; padding: 9px 11px; }
   .stat b { display: block; font-size: 15pt; color: var(--lime); }
   .stat span { font-size: 8.4pt; color: #9fc1b1; }
   .shot { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; margin: 6px 0 4px; }
+  figure { margin: 0 0 10px; }
+  figcaption { font-size: 8.6pt; color: var(--muted); }
+  .shots2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .box { background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
@@ -44,8 +46,7 @@
   tr:nth-child(even) td { background: #f8fbf9; }
   .ok { color: var(--green); font-weight: 700; white-space: nowrap; }
 
-  /* Diagrama */
-  .arch { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 10px; align-items: stretch; margin: 6px 0 4px; }
+  .arch { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 10px; align-items: stretch; margin: 6px 0 4px; }
   .col { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
   .node { border: 1.5px solid var(--line); border-radius: 9px; padding: 7px 9px; background: #fff; font-size: 8.8pt; }
   .node b { display: block; font-size: 9.4pt; }
@@ -61,27 +62,27 @@
 
 <div class="cover">
   <span class="tag">Caso de estudio · Proyecto de portafolio</span>
-  <h1>Bot de citas con IA para consultorios odontológicos</h1>
-  <p>Un asistente de WhatsApp que atiende a los pacientes que llegan por promociones, agenda sobre la disponibilidad real del consultorio, recuerda los turnos y recupera las cancelaciones sin intervención del equipo.</p>
+  <h1>Asistente de WhatsApp con IA para clínicas dentales</h1>
+  <p>MVP de plataforma de atención multiempresa: cada clínica tiene su asistente que responde, agenda sobre la agenda real, recuerda los turnos, ofrece los huecos de las cancelaciones y reactiva pacientes; y su equipo trabaja desde un panel con roles, estadísticas y costos de la IA.</p>
   <div class="stats">
     <div class="stat"><b>24/7</b><span>respuesta inmediata, también fuera de horario</span></div>
-    <div class="stat"><b>0</b><span>dobles reservas (validación + índice único en la base)</span></div>
-    <div class="stat"><b>8/8</b><span>casos de prueba de calidad aprobados</span></div>
-    <div class="stat"><b>2 canales</b><span>WhatsApp y simulador web, un solo motor</span></div>
+    <div class="stat"><b>0</b><span>dobles reservas (validación + índice único por clínica)</span></div>
+    <div class="stat"><b>2 clínicas</b><span>datos separados por la base (RLS) y login con roles</span></div>
+    <div class="stat"><b>80+</b><span>pruebas automatizadas, incluida la seguridad por clínica</span></div>
   </div>
 </div>
 
-<img class="shot" src="img/simulador.png" alt="Simulador web: chat estilo WhatsApp y agenda semanal sincronizada con Google Calendar" />
-<p class="muted"><small>Simulador web: el chat (izquierda) usa el mismo motor que WhatsApp; la agenda (derecha) se lee de Google Calendar y resalta en verde los turnos que reserva el bot. Datos ficticios.</small></p>
+<img class="shot" src="img/simulador.png" alt="Simulador web: chat estilo WhatsApp y agenda semanal" />
+<p class="muted"><small>Simulador web: el chat usa el mismo motor que WhatsApp; la agenda se lee de Google Calendar y resalta en verde el turno que acaba de reservar el bot. Datos ficticios.</small></p>
 
 <section>
   <h2><span class="n">1</span> Problema</h2>
-  <p>Los consultorios que invierten en promociones (redes, folletos, campañas) reciben consultas por WhatsApp en horarios en que nadie puede responder. Cada consulta sin respuesta es un paciente que se va a otro lado.</p>
+  <p>Los consultorios que invierten en promociones reciben consultas por WhatsApp a toda hora. Cada consulta sin respuesta, cada turno olvidado y cada hueco que deja una cancelación es facturación perdida.</p>
   <ul>
-    <li><b>Respuestas tardías:</b> la recepción contesta cuando puede; de noche y los fines de semana, nadie.</li>
-    <li><b>Agenda manual:</b> ofrecer horarios por chat obliga a mirar la agenda, ida y vuelta, con riesgo de errores y dobles reservas.</li>
-    <li><b>Ausencias:</b> sin recordatorios, los turnos olvidados quedan vacíos y no se recuperan.</li>
-    <li><b>Leads perdidos:</b> quien preguntó por la promo y no agendó no recibe seguimiento.</li>
+    <li><b>Respuestas tardías</b> y agenda manual por chat, con riesgo de dobles reservas.</li>
+    <li><b>Ausencias y cancelaciones</b> que dejan horarios vacíos que nadie vuelve a ofrecer.</li>
+    <li><b>Leads y pacientes perdidos:</b> quien preguntó y no agendó, o quien no vuelve hace meses, no recibe un segundo contacto.</li>
+    <li><b>Sin datos:</b> el consultorio no sabe cuántas consultas recibe, cuántas convierte ni cuánto le cuesta atenderlas.</li>
   </ul>
 </section>
 
@@ -91,21 +92,21 @@
     <div class="box">
       <h3>Para el paciente</h3>
       <ul>
-        <li>Respuesta al instante, en español neutro y con trato de usted.</li>
-        <li>Precios, horarios, ubicación y promo de la base de conocimiento; si no sabe, lo dice.</li>
+        <li>Respuesta al instante, en español neutro y con trato de usted; nunca consejos médicos.</li>
         <li>Turno en pocos mensajes, solo con horarios realmente libres.</li>
-        <li>Recordatorio 24 h y 2 h antes, con botones para confirmar, cambiar o cancelar.</li>
+        <li>Recordatorios con botones: confirmar, cambiar o cancelar.</li>
+        <li>Si no hay horario, queda en <b>lista de espera</b> y recibe el hueco que se libere.</li>
         <li>Puede pedir una persona en cualquier momento.</li>
       </ul>
     </div>
     <div class="box">
       <h3>Para el consultorio</h3>
       <ul>
-        <li>La agenda de siempre (Google Calendar) se llena sola.</li>
-        <li>Cancelaciones que liberan el horario y se reprograman en el mismo chat.</li>
-        <li>Seguimiento automático de leads de la promo que no agendaron.</li>
-        <li>Panel de recepción: citas del día, confirmaciones, conversaciones, derivaciones y métricas.</li>
-        <li>Recepción responde desde el panel por el mismo canal del paciente.</li>
+        <li>Panel con login y roles: conversaciones (tomar, pausar el bot, devolver), agenda, pacientes.</li>
+        <li>Estadísticas: consultas por día, conversión, bot vs persona, tratamientos más pedidos.</li>
+        <li>Costos de la IA por conversación, por mes y proyección.</li>
+        <li><b>Zona de aprendizaje:</b> edita precios, horarios, preguntas y tono, sube PDF/Word y prueba al asistente.</li>
+        <li>Reactivación de pacientes que no vuelven y exportación a Excel.</li>
       </ul>
     </div>
   </div>
@@ -115,83 +116,86 @@
   <h2><span class="n">3</span> Arquitectura</h2>
   <div class="arch">
     <div class="col">
-      <div class="node ext"><b>📱 WhatsApp</b>Cloud API de Meta (número de prueba)</div>
-      <div class="node ext"><b>💻 Simulador web</b>Chat con marco de celular para demos</div>
-      <div class="node ext"><b>🗂️ Panel de recepción</b>Ingreso protegido</div>
+      <div class="node ext"><b>📱 WhatsApp</b>Cloud API de Meta; la clínica se elige por el número que recibe</div>
+      <div class="node ext"><b>💻 Simulador web</b>Chat con marco de celular, selector de clínica</div>
+      <div class="node ext"><b>👩‍⚕️ Panel del consultorio</b>Supabase Auth · admin y recepción</div>
     </div>
     <div class="col">
-      <div class="node"><b>Adaptadores de canal</b>Webhook con firma HMAC, deduplicación y cola por paciente · API del simulador</div>
-      <div class="node core"><b>BotEngine (motor único)</b>Contexto del turno · respuestas rápidas sin IA · métricas de tiempo y costo</div>
-      <div class="node"><b>Herramientas validadas</b>horarios · crear · cancelar · reprogramar · confirmar · derivar</div>
-      <div class="node"><b>ReminderService</b>Recordatorios 24 h / 2 h y seguimiento, idempotente</div>
+      <div class="node"><b>Adaptadores</b>Webhook con firma HMAC y deduplicación · API del simulador · API del panel</div>
+      <div class="node core"><b>Un runtime por clínica</b>Motor del bot con su conocimiento, zona horaria y agenda · herramientas validadas · recordatorios · lista de espera · reactivación</div>
+      <div class="node"><b>Documentos</b>PDF/Word → fragmentos → búsqueda de texto en PostgreSQL</div>
     </div>
     <div class="col">
-      <div class="node ext"><b>🤖 Proveedor de IA</b>Claude · OpenAI · Mock (por variable de entorno)</div>
-      <div class="node ext"><b>📅 Google Calendar</b>Agenda real, cuenta de servicio</div>
-      <div class="node ext"><b>🗄️ Supabase (PostgreSQL)</b>Pacientes, conversaciones, citas, derivaciones, métricas, pruebas</div>
+      <div class="node ext"><b>🤖 IA intercambiable</b>Claude · OpenAI · modo sin IA (por variable)</div>
+      <div class="node ext"><b>📅 Google Calendar</b>Calendario compartido, eventos etiquetados por clínica</div>
+      <div class="node ext"><b>🗄️ Supabase + RLS</b>Clínicas, usuarios y roles, pacientes, turnos, lista de espera, documentos, métricas</div>
     </div>
   </div>
-  <p class="flow">Canal → adaptador → motor → IA ⇄ herramientas → agenda y base · El programador de recordatorios usa el mismo notificador que el panel.</p>
-  <p><b>Stack:</b> Node.js 24 · TypeScript · Express · SDK de Anthropic y de OpenAI · Google Calendar API · Supabase · WhatsApp Cloud API · Cloudflare Tunnel (desarrollo) · HTML/CSS/JS sin framework para simulador y panel.</p>
+  <p class="flow">Canal → clínica → motor → IA ⇄ herramientas → agenda y base · El panel consulta la base con el token del usuario, así la separación entre clínicas la garantiza PostgreSQL.</p>
+  <p><b>Stack:</b> Node.js 24 · TypeScript · Express · SDK de Anthropic y de OpenAI · Google Calendar API · Supabase (PostgreSQL, Auth, RLS) · WhatsApp Cloud API · pdf-parse y mammoth · HTML/CSS/JS sin framework con gráficos SVG propios.</p>
 </section>
+
+<div class="shots2">
+  <figure><img class="shot" src="img/panel-estadisticas.png" alt="Estadísticas" /><figcaption>Estadísticas de 30 días (datos ficticios).</figcaption></figure>
+  <figure><img class="shot" src="img/panel-aprendizaje.png" alt="Zona de aprendizaje" /><figcaption>Zona de aprendizaje: el probador responde con el PDF subido.</figcaption></figure>
+</div>
+<div class="shots2">
+  <figure><img class="shot" src="img/panel-conversaciones.png" alt="Bandeja de conversaciones" /><figcaption>Bandeja: conversación derivada, con «Devolver al bot».</figcaption></figure>
+  <figure><img class="shot" src="img/panel-agenda.png" alt="Agenda" /><figcaption>Agenda semanal con asistencia, cancelaciones y lista de espera.</figcaption></figure>
+</div>
 
 <section>
   <h2><span class="n">4</span> Decisiones técnicas</h2>
   <table>
     <tr><th style="width:30%">Decisión</th><th>Motivo</th></tr>
-    <tr><td><b>El modelo propone, el backend decide</b></td><td>Toda acción pasa por herramientas que validan horario de atención, anticipación mínima y disponibilidad. El modelo nunca inventa horarios.</td></tr>
-    <tr><td><b>Doble reserva imposible</b></td><td>Cerrojo en el proceso + índice único parcial en PostgreSQL. La reserva se hace en dos pasos con vuelta atrás si el calendario falla.</td></tr>
-    <tr><td><b>Proveedor de IA intercambiable</b></td><td>Contrato neutral de herramientas; Claude u OpenAI por variable de entorno. Historial nativo por conversación, solo agregado al final.</td></tr>
-    <tr><td><b>Prompt estable y cacheado</b></td><td>La base de conocimiento va en el prompt de sistema (corta); lo variable va en una nota por turno. Menos latencia y menor costo.</td></tr>
-    <tr><td><b>Respuestas rápidas sin IA</b></td><td>«Confirmo» y «Más adelante» se resuelven en código: instantáneo y sin costo. Cancelar o cambiar sí pasan por el modelo.</td></tr>
-    <tr><td><b>Seguimiento a las 20 h</b></td><td>Queda dentro de la ventana de 24 h de WhatsApp: mensaje con botones, sin plantilla. Si la ventana cerró, se usa la plantilla aprobada.</td></tr>
-    <tr><td><b>Modo sin IA (mock)</b></td><td>La demo funciona sin clave ni saldo, y las pruebas son deterministas.</td></tr>
-    <tr><td><b>Seguridad</b></td><td>Sin secretos en el repo, RLS sin políticas públicas, firma de Meta, panel con cookie firmada y límite de intentos, teléfonos enmascarados.</td></tr>
+    <tr><td><b>El modelo propone, el backend decide</b></td><td>Toda acción pasa por herramientas que validan horario, anticipación y disponibilidad. El modelo nunca inventa horarios.</td></tr>
+    <tr><td><b>Doble reserva imposible</b></td><td>Cerrojo en el proceso + índice único parcial <code>(clinic_id, start_at)</code>; reserva en dos pasos con vuelta atrás si el calendario falla.</td></tr>
+    <tr><td><b>Seguridad por clínica en la base</b></td><td>RLS con políticas por <code>clinic_members</code>; el panel usa el token del usuario. Una prueba contra Supabase real verifica que recepción no lee otra clínica ni ve costos.</td></tr>
+    <tr><td><b>Conocimiento editable sin reiniciar</b></td><td>El prompt de cada clínica se arma por turno desde su conocimiento: un cambio de precio rige desde el mensaje siguiente y, mientras no cambie, se aprovecha la caché.</td></tr>
+    <tr><td><b>Documentos con búsqueda de texto</b></td><td>tsvector en español + índice GIN: costo cero y sin otro servicio. Documentado el paso a pgvector (búsqueda híbrida) sin cambiar la interfaz.</td></tr>
+    <tr><td><b>Lista de espera con oferta temporal</b></td><td>El hueco se ofrece a la primera persona que coincide en rango y franja; si no responde en 30 min pasa a la siguiente; si alguien lo tomó antes, se avisa.</td></tr>
+    <tr><td><b>Proveedor de IA intercambiable</b></td><td>Claude u OpenAI por variable de entorno; si falta la clave pasa solo al modo sin IA, que sirve para demos y pruebas deterministas.</td></tr>
+    <tr><td><b>Entornos separados</b></td><td>Entorno de pruebas en memoria con 30 días de datos ficticios; en producción el servidor no arranca sin base real, firma de Meta ni secreto de sesión.</td></tr>
   </table>
 </section>
 
 <section>
   <h2><span class="n">5</span> Pruebas</h2>
-  <p>Casos de calidad automatizados (<code>npm run test:cases</code>): cada uno arma un entorno aislado con agenda de ejemplo y reloj fijo, conversa con el bot y verifica el estado final (citas, agenda, derivaciones), no solo el texto.</p>
+  <p>Cada caso arma un entorno aislado con reloj fijo, conversa con el bot y verifica el estado final (turnos, agenda, derivaciones, lista de espera), no solo el texto.</p>
   <table>
-    <tr><th>#</th><th>Caso</th><th>Qué se verifica</th><th>Resultado</th></tr>
-    <tr><td>1</td><td>Horario ocupado</td><td>No reserva ni ofrece el horario ocupado; da alternativas libres</td><td class="ok">✓ OK</td></tr>
-    <tr><td>2</td><td>Cancelación a último momento</td><td>Cancela, libera el horario y ofrece reprogramar en el mismo mensaje</td><td class="ok">✓ OK</td></tr>
-    <tr><td>3</td><td>Mensaje confuso</td><td>No ejecuta acciones; pide aclaración con opciones</td><td class="ok">✓ OK</td></tr>
-    <tr><td>4</td><td>Pedido de hablar con una persona</td><td>Deriva con resumen útil y deja de responder como bot</td><td class="ok">✓ OK</td></tr>
-    <tr><td>5</td><td>Fuera de horario</td><td>Responde igual y solo ofrece horarios de atención; el domingo, explica y propone otro día</td><td class="ok">✓ OK</td></tr>
-    <tr><td>6</td><td>Doble reserva</td><td>Dos pedidos simultáneos del mismo horario: solo uno se confirma</td><td class="ok">✓ OK</td></tr>
-    <tr><td>7</td><td>Paciente que cambia de idea</td><td>Mueve el turno sin duplicarlo y libera el anterior</td><td class="ok">✓ OK</td></tr>
-    <tr><td>8</td><td>Consulta clínica (extra)</td><td>No indica medicamentos ni dosis</td><td class="ok">✓ OK</td></tr>
+    <tr><th>Suite</th><th>Casos</th><th>Qué cubre</th></tr>
+    <tr><td>Calidad</td><td>8</td><td>Horario ocupado, cancelación de último momento, mensaje confuso, pedido de persona, fuera de horario, doble reserva, cambio de idea, consulta clínica — <span class="ok">8/8 ✓</span></td></tr>
+    <tr><td>Multiempresa</td><td>12</td><td>Datos separados, doble reserva por clínica, agenda etiquetada, webhook por número, acceso por rol</td></tr>
+    <tr><td>Panel y aprendizaje</td><td>19</td><td>Tomar / pausar / devolver, agenda, estadísticas, costos, conocimiento al instante, PDF con búsqueda, probador, CSV</td></tr>
+    <tr><td>Lista de espera y reactivación</td><td>10</td><td>Ofrecer, aceptar, rechazar, vencer, horario tomado, rango y franja, invitación única</td></tr>
+    <tr><td>WhatsApp y recordatorios</td><td>22</td><td>Webhook firmado, botones, audio, plantillas fuera de la ventana de 24 h, reloj simulado</td></tr>
+    <tr><td>Integración real</td><td>8 pasos</td><td>Supabase y Google Calendar reales: reserva, índice por clínica, búsqueda de documentos y RLS</td></tr>
   </table>
-  <p>Además: <b>10</b> casos de recordatorios con reloj simulado (de lunes a miércoles en segundos), <b>12</b> del canal WhatsApp con avisos firmados simulados y una prueba de integración contra Supabase y Google Calendar reales. Las pruebas detectaron y permitieron corregir errores reales antes de la demo (validación de la hora pedida y fechado de reservas con reloj simulado).</p>
-  <p class="muted"><small>Resultados del modo sin IA. Con <code>LLM_PROVIDER=claude</code> el mismo comando mide tiempos y costos reales y genera <code>reports/test-results-claude.md</code>.</small></p>
 </section>
 
 <section>
   <h2><span class="n">6</span> Costos</h2>
-  <p>Estimación por conversación típica: 6 mensajes del paciente, ~1,6 llamadas al modelo por mensaje, ~2.600 tokens de prompt y herramientas leídos de caché desde el segundo mensaje. <b>A confirmar con la medición real.</b></p>
+  <p>Estimación por conversación típica (6 mensajes del paciente). El panel mide tokens y costo de cada mensaje y proyecta el mes. <b>A confirmar con la medición real.</b></p>
   <table style="break-inside: avoid">
-    <tr><th>Modelo</th><th>Precio por millón de tokens (entrada / salida)</th><th>Por mensaje</th><th>Por conversación</th></tr>
-    <tr><td>Claude Opus 5.5 (por defecto)</td><td>USD 4 / USD 20</td><td>~USD 0,019</td><td><b>~USD 0,11</b></td></tr>
-    <tr><td>Claude Sonnet 5.5</td><td>USD 2 / USD 10</td><td>~USD 0,009</td><td>~USD 0,055</td></tr>
-    <tr><td>Claude Haiku 5.5</td><td>USD 0,10 / USD 0,50</td><td>~USD 0,0005</td><td>~USD 0,003</td></tr>
+    <tr><th>Modelo</th><th>Precio por millón de tokens (entrada / salida)</th><th>Por conversación</th></tr>
+    <tr><td>Claude Opus 5.5</td><td>USD 4 / USD 20</td><td>~USD 0,11</td></tr>
+    <tr><td>Claude Sonnet 5.5</td><td>USD 2 / USD 10</td><td>~USD 0,055</td></tr>
+    <tr><td>Claude Haiku 5.5</td><td>USD 0,10 / USD 0,50</td><td>~USD 0,001–0,003</td></tr>
   </table>
-  <p><b>Infraestructura de la demo:</b> Supabase, Google Calendar, número de prueba de WhatsApp y Cloudflare Tunnel en planes gratuitos. En producción se suma el costo de WhatsApp por conversación iniciada por el negocio (recordatorios y seguimiento), que varía por país, y un hosting básico para el servidor.</p>
-  <p><b>Referencia de retorno:</b> si un turno de limpieza vale USD 40 y el bot recupera <i>un</i> paciente por semana que de otro modo se perdía, cubre con holgura el costo de cientos de conversaciones.</p>
+  <p><b>Infraestructura de la demo:</b> Supabase, Google Calendar, número de prueba de WhatsApp y túnel de Cloudflare en planes gratuitos. En producción se suman los mensajes que inicia el negocio por WhatsApp (recordatorios, ofertas, reactivación), según país y categoría, y un hosting siempre encendido.</p>
+  <p><b>Referencia de retorno:</b> si un turno vale USD 40 y la lista de espera recupera <i>un</i> hueco por semana, cubre con holgura miles de conversaciones con Haiku.</p>
 </section>
 
 <section>
   <h2><span class="n">7</span> Próximos pasos para producción</h2>
   <ul>
-    <li>Número de WhatsApp propio del consultorio y verificación de la empresa en Meta.</li>
-    <li>Hosting con URL fija (por ejemplo, un servicio de contenedores) en lugar del túnel.</li>
-    <li>Varios profesionales y duraciones por tratamiento (blanqueamiento de 60 min).</li>
-    <li>Lista de espera: ofrecer automáticamente los horarios liberados a quienes esperan.</li>
+    <li>Conexión del número propio de cada clínica (Embedded Signup de Meta) y verificación del negocio.</li>
+    <li>Hosting siempre encendido con URL fija (guía de despliegue incluida).</li>
+    <li>Varios profesionales y duraciones por tratamiento; búsqueda híbrida con pgvector.</li>
     <li>Evaluación periódica de la IA con los casos de prueba ante cada cambio de prompt o modelo.</li>
   </ul>
 </section>
 
-<div class="foot"><span>Bot de citas con IA · Proyecto de portafolio con datos ficticios</span><span>github.com/siriusdecohome-star/Bot_Consultorio</span></div>
+<div class="foot"><span>Asistente de WhatsApp con IA · Proyecto de portafolio con datos ficticios</span><span>github.com/siriusdecohome-star/Bot_Consultorio</span></div>
 </body>
 </html>

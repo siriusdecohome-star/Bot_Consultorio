@@ -13,7 +13,7 @@ export interface Services {
 }
 
 export const hasSupabase = () => Boolean(config.supabase.url && config.supabase.secretKey);
-export const hasGoogle = () => Boolean(config.google.calendarId && existsSync(config.google.keyFile));
+export const hasGoogle = () => Boolean(config.google.calendarId && (config.google.keyJsonBase64 || existsSync(config.google.keyFile)));
 
 /**
  * Elige la implementación según el .env: si están las credenciales usa los

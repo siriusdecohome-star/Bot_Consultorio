@@ -22,6 +22,21 @@ import { SupabaseStore } from "./services/supabaseStore.js";
  */
 const provider = await createProvider();
 const services = await createServices();
+
+// Producción: no arranca con una configuración insegura o incompleta.
+if (config.isProduction) {
+  const problems = [
+    services.storeKind !== "supabase" && "falta Supabase (en producción no se usa la base en memoria)",
+    !config.panel.sessionSecret && "falta PANEL_SESSION_SECRET (sin ella las sesiones se pierden al reiniciar)",
+    !config.supabase.publishableKey && "falta SUPABASE_PUBLISHABLE_KEY (login del panel)",
+    config.whatsapp.verifyToken && !config.whatsapp.appSecret && "falta WHATSAPP_APP_SECRET (sin ella no se valida la firma de Meta)",
+    provider.notice && `IA: ${provider.notice}`,
+  ].filter(Boolean);
+  if (problems.length) {
+    console.error(`No se puede iniciar en producción:\n- ${problems.join("\n- ")}`);
+    process.exit(1);
+  }
+}
 const clinics = await loadClinics(services);
 
 const wa = config.whatsapp;
@@ -41,9 +56,11 @@ if (services.calendarKind === "memoria") {
   }
 }
 // Base en memoria (entorno de pruebas): 30 días de datos ficticios para que el panel tenga contenido.
-if (services.storeKind === "memoria" && process.env.DEMO_DATA !== "false") {
+if (services.storeKind === "memoria" && process.env.DEMO_DATA !== "false" && !config.isProduction) {
   const { loadDemoMemory } = await import("./data/loadDemo.js");
+  const { loadExampleDocument } = await import("./data/loadDemo.js");
   for (const rt of runtimes.values()) await loadDemoMemory(rt.store, rt.calendar, rt.profile, systemClock());
+  await loadExampleDocument(primary.store);
 }
 
 const auth = createAuth(services.storeKind);

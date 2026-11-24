@@ -44,7 +44,7 @@ if (!config.supabase.url && !config.supabase.secretKey) {
 // --- Google Calendar ---
 if (!config.google.calendarId) {
   skip("Google Calendar: sin GOOGLE_CALENDAR_ID → se usa agenda en memoria");
-} else if (!existsSync(config.google.keyFile)) {
+} else if (!config.google.keyJsonBase64 && !existsSync(config.google.keyFile)) {
   bad(`Google Calendar: no encuentro el archivo de clave en ${config.google.keyFile}`); failures++;
 } else {
   try {

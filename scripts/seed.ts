@@ -8,11 +8,9 @@
  *   ocupados de cada clínica y los turnos de ejemplo próximos, con la etiqueta de la clínica.
  * - Sube el documento de ejemplo (indicaciones después del tratamiento) a la clínica A.
  * Sin Supabase no hace nada: en memoria todo se carga solo al iniciar el servidor.
- * Uso: npm run seed
+ * Uso: npm run seed                      → clínicas + 30 días de ejemplo
+ *      npm run seed -- --sin-ejemplos    → solo las clínicas (producción): no carga datos ficticios
  */
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { ROOT } from "../src/config.js";
 import { seedCalendar } from "../src/data/seed.js";
 import { createServices } from "../src/services/factory.js";
 import { systemClock, toLocal } from "../src/services/time.js";
@@ -20,8 +18,7 @@ import { demoClinics, CLINIC_A } from "../src/data/clinics/index.js";
 import { clinicToRow } from "../src/clinics/registry.js";
 import { withClinic } from "../src/clinics/context.js";
 import { ClinicCalendar } from "../src/services/calendar.js";
-import { loadDemoSupabase } from "../src/data/loadDemo.js";
-import { toChunks } from "../src/documents.js";
+import { loadDemoSupabase, loadExampleDocument } from "../src/data/loadDemo.js";
 import type { GoogleCalendarService } from "../src/services/googleCalendar.js";
 import type { SupabaseStore } from "../src/services/supabaseStore.js";
 
@@ -39,6 +36,11 @@ const r = await db.from("clinics").upsert(clinics.map(clinicToRow));
 if (r.error) throw new Error(`clínicas: ${r.error.message}`);
 console.log(`Clínicas guardadas: ${clinics.map((c) => c.name).join(" · ")}`);
 
+if (process.argv.includes("--sin-ejemplos")) {
+  console.log("Solo clínicas (--sin-ejemplos): no se cargaron datos de ejemplo.");
+  process.exit(0);
+}
+
 const google = s.calendarKind === "google" ? (s.calendar as GoogleCalendarService) : null;
 if (google) {
   const today = toLocal(now).startOf("day");
@@ -55,11 +57,6 @@ for (const c of clinics) {
 }
 
 // Documento de ejemplo para la búsqueda (clínica A), si todavía no está.
-const storeA = s.store.forClinic(CLINIC_A);
-const docName = "indicaciones-post-tratamiento.pdf";
-if (!(await storeA.listDocuments()).some((d) => d.name === docName)) {
-  const buf = readFileSync(path.join(ROOT, "docs/ejemplos", docName));
-  const doc = await storeA.addDocument({ name: docName, mime: "application/pdf", sizeBytes: buf.length }, await toChunks(buf, "pdf"));
-  console.log(`Documento de ejemplo cargado: ${doc.name} (${doc.chunks} fragmentos)`);
-}
+const loaded = await loadExampleDocument(s.store.forClinic(CLINIC_A));
+if (loaded) console.log(`Documento de ejemplo cargado: ${loaded}`);
 console.log("Listo.");

@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 /** Raíz del proyecto: el .env y las rutas relativas se resuelven desde acá, no desde la carpeta actual. */
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-loadEnv({ path: path.join(ROOT, ".env"), quiet: true });
+// ENV_FILE elige otro archivo (p. ej. .env.test). En un servidor las variables suelen venir del panel del proveedor.
+loadEnv({ path: path.resolve(ROOT, process.env.ENV_FILE?.trim() || ".env"), quiet: true });
 
 /** Lee una variable de entorno con valor por defecto. Nunca hay claves hardcodeadas. */
 function env(name: string, fallback = ""): string {
@@ -67,6 +68,8 @@ export const config = {
   google: {
     calendarId: env("GOOGLE_CALENDAR_ID"),
     keyFile: path.resolve(ROOT, env("GOOGLE_SERVICE_ACCOUNT_JSON_PATH", "secrets/google-service-account.json")),
+    /** Alternativa para servidores sin archivos: el JSON de la cuenta de servicio en base64. */
+    keyJsonBase64: env("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64"),
   },
 
   whatsapp: {
@@ -115,4 +118,6 @@ export const config = {
   },
 
   port: num("PORT", 3000),
+  /** production = controles estrictos al arrancar (ver server.ts). */
+  isProduction: env("NODE_ENV") === "production",
 };

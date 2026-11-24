@@ -23,24 +23,26 @@ Las dos son gratuitas y no piden tarjeta. Tiempo estimado: 20–30 minutos.
 
 1. En el menú izquierdo, abrí **SQL Editor** y tocá **New query**.
 2. Abrí en VS Code el archivo `supabase/schema.sql` del proyecto, copiá todo su contenido y pegalo en el editor.
-3. Tocá **Run**. Debería aparecer *Success. No rows returned*.
-4. Repetí con `supabase/seed.sql` (datos de ejemplo ficticios).
-5. Comprobá en **Table Editor** que aparezcan las tablas `patients`, `conversations`, `appointments`, `handoffs`, `turn_metrics` y `test_results`.
+3. Tocá **Run**. Si Supabase avisa de operaciones destructivas o de RLS, elegí **Run and enable RLS**: las operaciones «destructivas» solo recrean las políticas. Debería aparecer *Success. No rows returned*.
+4. Comprobá en **Table Editor** que aparezcan, entre otras, las tablas `clinics`, `clinic_members`, `patients`, `conversations`, `appointments`, `waitlist` y `documents`.
+5. Los datos de ejemplo se cargan después desde la terminal, con `npm run seed` (clínicas y 30 días ficticios) y `npm run seed:users` (usuarios del panel).
 
-> Las tablas tienen **RLS activado sin políticas públicas**: nadie puede leerlas desde el navegador con la clave pública. Solo el backend, con la clave secreta, accede a ellas.
+> Las tablas tienen **RLS por clínica**: con la clave pública y sin sesión no se lee nada. El panel consulta con la sesión de cada usuario y solo ve sus clínicas; el backend usa la clave secreta.
 
-### A3. Copiar la URL y la clave secreta
+### A3. Copiar la URL y las claves
 
 1. Abrí **Project Settings** (el engranaje) → **API Keys** (o **Data API**, según la versión).
 2. Copiá la **Project URL** (tiene la forma `https://xxxx.supabase.co`). Está en **Data API** o en el botón **Connect** de la parte superior.
 3. Copiá la **clave secreta**:
    - En proyectos nuevos se llama **Secret key** y empieza con `sb_secret_...`. Si no existe, tocá **Create new secret key**.
    - En proyectos viejos se llama **service_role** (pestaña *Legacy API keys*). También sirve.
-4. Pegá las dos en tu `.env`:
+4. Copiá también la **clave pública** (**Publishable key**, empieza con `sb_publishable_...`; en proyectos viejos, **anon**). La usa el login del panel; las consultas van con la sesión de cada usuario, así que no da acceso a datos.
+5. Pegá las tres en tu `.env`:
 
 ```
 SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_xxxxxxxx
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxxxxx
 ```
 
 > ⚠️ La clave secreta saltea toda la seguridad de la base. Solo va en el backend (`.env`), nunca en el navegador ni en el repositorio.

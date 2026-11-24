@@ -266,7 +266,8 @@ export class MockProvider implements LlmProvider {
         if (docs.resultados?.length) {
           const r0 = docs.resultados[0];
           const text = bestSnippet(r0.texto, input.userText);
-          return `Según la información del consultorio (_${r0.documento}_):\n\n${text}\n\n¿Le ayudo con algo más?`;
+          const doc = String(r0.documento).replace(/\.(pdf|docx|txt|md)$/i, "").replace(/[-_]+/g, " ");
+          return `Según el documento «${doc}» del consultorio:\n\n${text}\n\n¿Le ayudo con algo más?`;
         }
       }
       if (has(t, "hola", "buen", "info", "informacion")) return GREETING_ONLY;

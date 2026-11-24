@@ -24,7 +24,9 @@
     "seed:users": "tsx scripts/seed-users.ts",
     "test:clinics": "tsx tests/multiclinic.ts",
     "test:panel": "tsx tests/panel.ts",
-    "test:waitlist": "tsx tests/waitlist.ts"
+    "test:waitlist": "tsx tests/waitlist.ts",
+    "dev:test": "tsx scripts/dev-test.ts",
+    "capturas": "tsx scripts/screenshots.ts"
   },
   "keywords": [],
   "author": "",
@@ -47,5 +49,8 @@
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

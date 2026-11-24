@@ -6,6 +6,19 @@ import type { Store } from "../services/store.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildDemoData, type DemoData } from "./demoData.js";
 
+/** Sube el PDF de ejemplo (indicaciones después del tratamiento) si la clínica todavía no lo tiene. */
+export async function loadExampleDocument(store: Store): Promise<string | null> {
+  const name = "indicaciones-post-tratamiento.pdf";
+  if ((await store.listDocuments()).some((d) => d.name === name)) return null;
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const { ROOT } = await import("../config.js");
+  const { toChunks } = await import("../documents.js");
+  const buf = readFileSync(path.join(ROOT, "docs/ejemplos", name));
+  const doc = await store.addDocument({ name, mime: "application/pdf", sizeBytes: buf.length }, await toChunks(buf, "pdf"));
+  return `${doc.name} (${doc.chunks} fragmentos)`;
+}
+
 /** Semilla distinta por clínica: datos distintos pero reproducibles. */
 export const demoSeed = (c: ClinicProfile) => (c.primary ? 7 : 11);
 

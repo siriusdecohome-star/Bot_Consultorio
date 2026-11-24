@@ -179,6 +179,17 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
     }
   }
 
+  // Siempre queda al menos una derivación abierta reciente: es lo que recepción tiene que atender.
+  if (data.handoffs.length && !data.handoffs.some((h) => h.status === "abierta")) {
+    const h = [...data.handoffs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
+    h.status = "abierta";
+    const conv = data.conversations.find((c) => c.id === h.conversationId)!;
+    conv.handedOff = true;
+    // Sin respuesta de recepción todavía: la conversación «espera respuesta».
+    while (conv.messages.at(-1)?.role === "human") conv.messages.pop();
+    conv.updatedAt = conv.messages.at(-1)!.at;
+  }
+
   // Pacientes que no vuelven (última visita hace 7 a 10 meses): candidatos a reactivación.
   for (let j = 0; j < (primary ? 6 : 4); j++) {
     const name = `${pick(FIRST)} ${pick(LAST)} (demo)`;

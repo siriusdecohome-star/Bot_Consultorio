@@ -13,7 +13,9 @@ export class GoogleCalendarService implements CalendarService {
   private api: calendar_v3.Calendar;
 
   constructor(private calendarId: string, keyFile: string) {
-    const credentials = JSON.parse(readFileSync(keyFile, "utf8"));
+    // La clave sale de GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (servidores) o del archivo local.
+    const b64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
+    const credentials = JSON.parse(b64 ? Buffer.from(b64, "base64").toString("utf8") : readFileSync(keyFile, "utf8"));
     // Cliente JWT de cuenta de servicio, con el permiso mínimo: solo eventos.
     const client = new auth.JWT({
       email: credentials.client_email,
