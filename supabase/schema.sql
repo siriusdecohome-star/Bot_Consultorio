@@ -223,6 +223,7 @@ alter table appointments   enable row level security;
 alter table handoffs       enable row level security;
 alter table turn_metrics   enable row level security;
 alter table test_results   enable row level security;
+alter table waitlist       enable row level security;
 
 -- Las políticas se recrean para que el archivo se pueda volver a ejecutar.
 drop policy if exists clinics_read  on clinics;
