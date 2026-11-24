@@ -79,6 +79,7 @@ function treatmentOf(t: string): string | undefined {
 export class MockProvider implements LlmProvider {
   readonly name = "mock";
   readonly model = "reglas-v1";
+  constructor(readonly notice?: string) {}
 
   async runTurn(input: TurnInput): Promise<TurnResult> {
     const prev = [...input.state].reverse().find((x) => (x as { mock?: Memory }).mock) as { mock: Memory } | undefined;

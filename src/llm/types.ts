@@ -61,6 +61,8 @@ export interface TurnInput {
 export interface LlmProvider {
   readonly name: string;
   readonly model: string;
+  /** Motivo por el que se usa este proveedor en lugar del pedido (p. ej. falta la clave). */
+  readonly notice?: string;
   runTurn(input: TurnInput): Promise<TurnResult>;
 }
 

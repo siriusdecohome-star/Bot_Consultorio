@@ -11,6 +11,9 @@ import {
 
 type Msg = Anthropic.Beta.BetaMessageParam;
 
+/** Modelos que aceptan el reintento del servidor con otro modelo si un clasificador rechaza (Haiku no). */
+const SUPPORTS_FALLBACK = /^claude-(opus-5|sonnet-5-5|fable-5)/;
+
 /**
  * Proveedor Claude (Messages API + herramientas, bucle manual).
  * - Bucle manual (no Tool Runner) porque necesitamos medir cada herramienta,
@@ -48,8 +51,9 @@ export class ClaudeProvider implements LlmProvider {
         messages: [...(input.state as Msg[]), ...added],
         output_config: { effort: config.claude.effort },
         // Si un clasificador de seguridad rechaza, el servidor reintenta con otro modelo.
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
+        ...(SUPPORTS_FALLBACK.test(this.model)
+          ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
+          : {}),
       });
       modelCalls++;
 

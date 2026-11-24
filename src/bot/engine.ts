@@ -43,7 +43,8 @@ export class BotEngine {
   ) {}
 
   get providerName() {
-    return `${this.provider.name}:${this.provider.model}`;
+    const base = `${this.provider.name}:${this.provider.model}`;
+    return this.provider.notice ? `${base} (${this.provider.notice})` : base;
   }
 
   /**

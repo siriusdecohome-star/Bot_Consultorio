@@ -18,18 +18,27 @@ function num(name: string, fallback: number): number {
 
 export type ProviderName = "claude" | "openai" | "mock";
 
+/** Precios USD por millón de tokens (entrada / salida / lectura de caché) de la página oficial, nov. 2026. */
+const CLAUDE_PRICES: Record<string, [number, number, number]> = {
+  "claude-opus-5-5": [4, 20, 0.2],
+  "claude-sonnet-5-5": [2, 10, 0.1],
+  "claude-haiku-5-5": [0.1, 0.5, 0.01],
+};
+const claudeModel = env("CLAUDE_MODEL", "claude-opus-5-5");
+const claudePrice = CLAUDE_PRICES[claudeModel] ?? CLAUDE_PRICES["claude-opus-5-5"];
+
 export const config = {
   /** claude | openai | mock (mock = sin clave, respuestas guionadas para demo y pruebas) */
   llmProvider: env("LLM_PROVIDER", "mock") as ProviderName,
 
   claude: {
-    model: env("CLAUDE_MODEL", "claude-opus-5-5"),
+    model: claudeModel,
     /** low | medium | high — para un chat de turnos cortos, "low" alcanza y es más barato y rápido */
     effort: env("CLAUDE_EFFORT", "low") as "low" | "medium" | "high",
-    /** Precios USD por millón de tokens (verificar en la página oficial de precios) */
-    priceIn: num("CLAUDE_PRICE_INPUT_PER_MTOK", 4),
-    priceOut: num("CLAUDE_PRICE_OUTPUT_PER_MTOK", 20),
-    priceCacheRead: num("CLAUDE_PRICE_CACHE_READ_PER_MTOK", 0.2),
+    /** Precios USD por millón de tokens: salen de la tabla según el modelo; las variables solo los pisan */
+    priceIn: num("CLAUDE_PRICE_INPUT_PER_MTOK", claudePrice[0]),
+    priceOut: num("CLAUDE_PRICE_OUTPUT_PER_MTOK", claudePrice[1]),
+    priceCacheRead: num("CLAUDE_PRICE_CACHE_READ_PER_MTOK", claudePrice[2]),
   },
 
   openai: {
