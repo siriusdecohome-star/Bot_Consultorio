@@ -14,7 +14,8 @@
     "test:integration": "tsx tests/integration.ts",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "test:whatsapp": "tsx tests/whatsapp.ts"
+    "test:whatsapp": "tsx tests/whatsapp.ts",
+    "wa:subscribe": "tsx scripts/wa-subscribe.ts"
   },
   "keywords": [],
   "author": "",

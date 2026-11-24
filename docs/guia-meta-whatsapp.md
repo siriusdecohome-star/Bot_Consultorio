@@ -89,6 +89,13 @@ Copiá la URL que muestra, del tipo `https://palabras-al-azar.trycloudflare.com`
 3. **Token de verificación:** copiá el valor de `WHATSAPP_VERIFY_TOKEN` de tu `.env`.
 4. Tocá **Verificar y guardar**. En la terminal del bot debe aparecer `[whatsapp] webhook verificado por Meta`.
 5. En **Campos del webhook**, activá la suscripción a **messages**.
+6. **Conectar la app a la cuenta de WhatsApp** (si no, Meta verifica el webhook pero no envía los mensajes). Con el bot instalado, en PowerShell:
+
+   ```powershell
+   npm run wa:subscribe
+   ```
+
+   Debe listar tu app entre las *apps conectadas*. Equivale a `POST /{WABA_ID}/subscribed_apps` de la Graph API.
 
 ## Parte E — Probar
 
@@ -116,7 +123,7 @@ Copiá la URL que muestra, del tipo `https://palabras-al-azar.trycloudflare.com`
 | Síntoma | Causa probable |
 |---|---|
 | `Verificar y guardar` falla | El bot o el túnel no están corriendo, la URL no termina en `/webhook/whatsapp`, o el token de verificación no coincide. |
-| El bot no responde y la terminal no muestra nada | Falta suscribir el campo **messages** (Parte D.5) o cambió la URL del túnel. |
+| El bot no responde y la terminal no muestra nada | Falta suscribir el campo **messages** (D.5), conectar la app a la cuenta de WhatsApp (D.6) o cambió la URL del túnel. |
 | Terminal: `aviso con firma inválida` | `WHATSAPP_APP_SECRET` no es la clave secreta de **esta** app. |
 | Error `190` | Token vencido (el temporal dura 24 h). |
 | Error `131030` (destinatario no permitido) | El número no está en la lista de la Parte B.3. Con números de Argentina (`549…`) o México (`521…`) el bot reintenta solo con la variante sin el dígito móvil. |
