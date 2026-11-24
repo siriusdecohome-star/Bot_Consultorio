@@ -108,6 +108,27 @@ export class MockProvider implements LlmProvider {
       return `${intro.replace("{dia}", dayHeader(mem.slots))}\n\n${slotList(mem.slots)}\n\n¿Cuál le queda mejor? Respóndame con el número.`;
     };
 
+    /**
+     * El paciente pidió una fecha y hora exactas: se consulta la agenda de ese día.
+     * Devuelve null si está libre, o el mensaje con alternativas si no.
+     */
+    const checkExact = async (key: string): Promise<string | null> => {
+      const date = key.slice(0, 10);
+      const r = await call("buscar_horarios_disponibles", { fecha_desde: date, fecha_hasta: date, franja: "cualquiera" });
+      const free: Array<{ inicio: string }> = r.horarios;
+      if (free.some((s) => s.inicio === key)) return null;
+      const d = DateTime.fromISO(key, { zone: TZ() }).setLocale("es");
+      const head = free.length
+        ? `Las *${d.toFormat("HH:mm")}* del ${d.toFormat("cccc dd/MM")} no están disponibles.`
+        : `El *${d.toFormat("cccc dd/MM")}* no tengo turnos: atendemos ${clinic.hoursText.charAt(0).toLowerCase()}${clinic.hoursText.slice(1)}`;
+      if (free.length) return offer(d, d, "cualquiera", `${head} {dia} tengo libres:`);
+      return offer(d.plus({ days: 1 }), d.plus({ days: 5 }), "cualquiera", `${head}\n\n{dia} tengo libres:`);
+    };
+    const timeIn = (txt: string) => {
+      const hm = txt.match(/\b(\d{1,2})[:.](\d{2})\b/) ?? txt.match(/\blas (\d{1,2})\b/);
+      return hm ? `${hm[1]!.padStart(2, "0")}:${hm[2] ?? "00"}` : null;
+    };
+
     const reply = await (async (): Promise<string> => {
       // 1) Pedidos que cortan cualquier flujo
       if (has(t, "persona", "humano", "asesor", "recepcion", "operador", "hablar con alguien")) {
@@ -141,20 +162,21 @@ export class MockProvider implements LlmProvider {
 
       // 2) Flujo de reserva
       if (mem.step === "elige_horario") {
-        const n = t.match(/\b([1-4])\b/);
-        const hm = t.match(/\b(\d{1,2})[:.](\d{2})\b/) ?? t.match(/\blas (\d{1,2})\b/);
+        const time = timeIn(t);
+        const pref = parseDay(t, now);
+        const n = time ? null : t.match(/\b([1-4])\b/);
         let pick = n ? mem.slots[+n[1]! - 1] : undefined;
-        if (!pick && hm) {
-          const hh = hm[1]!.padStart(2, "0");
-          const mm = hm[2] ?? "00";
-          pick = mem.slots.find((s) => s.inicio.endsWith(`T${hh}:${mm}`));
+        if (!pick && time) {
+          // Si nombró otro día ("el domingo a las 10"), la hora es de ese día, no de la lista ofrecida.
+          const day = pref?.[0] ?? DateTime.fromISO(mem.slots[0]!.inicio, { zone: TZ() });
+          const key = `${day.toISODate()}T${time}`;
+          pick = mem.slots.find((s) => s.inicio === key);
           if (!pick) {
-            // Horario pedido que no estaba en la lista: se intenta igual y la herramienta valida.
-            const day = parseDay(t, now)?.[0] ?? DateTime.fromISO(mem.slots[0]!.inicio, { zone: TZ() });
-            pick = { inicio: `${day.toISODate()}T${hh}:${mm}`, cuando: `${hh}:${mm}` };
+            const busy = await checkExact(key);
+            if (busy) return busy;
+            pick = { inicio: key, cuando: time };
           }
         }
-        const pref = parseDay(t, now);
         if (!pick && pref) return offer(pref[0], pref[1], franja(t), "Perfecto. {dia} tengo:");
         if (!pick) return "Disculpe, no identifiqué el horario. ¿Me responde con el número de la opción? (1, 2, 3 o 4)";
         mem.chosen = pick.inicio;
@@ -176,6 +198,18 @@ export class MockProvider implements LlmProvider {
       const day = parseDay(t, now);
       if (has(t, "turno", "cita", "agendar", "reservar", "sacar", "quiero ir", "disponib", "lugar") || (day && mem.step === "idle" && has(t, "puedo", "tiene", "hay"))) {
         mem.treatment = treatmentOf(t) ?? mem.treatment ?? "Consulta y diagnóstico";
+        const time = timeIn(t);
+        if (day && time) {
+          // Pidió día y hora exactos: si está libre se toma directamente; si no, se explican las alternativas.
+          const key = `${day[0].toISODate()}T${time}`;
+          const busy = await checkExact(key);
+          if (busy) return busy;
+          mem.chosen = key;
+          mem.step = "pide_nombre";
+          const d = DateTime.fromISO(key, { zone: TZ() }).setLocale("es");
+          if (mem.name) return this.book(call, mem);
+          return `¡Buenas noticias! El *${d.toFormat("cccc dd/MM 'a las' HH:mm")}* está libre. Para reservarlo, ¿me indica su nombre y apellido?`;
+        }
         if (!day) return offer(now, now.plus({ days: 3 }), franja(t), "¡Con gusto! 📅 {dia} tengo estos horarios libres:");
         return offer(day[0], day[1], franja(t), "¡Con gusto! 📅 {dia} tengo estos horarios libres:");
       }

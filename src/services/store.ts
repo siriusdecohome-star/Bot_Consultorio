@@ -102,6 +102,7 @@ export interface Store {
 
   createHandoff(h: Omit<Handoff, "id" | "createdAt" | "status">): Promise<Handoff>;
   listHandoffs(): Promise<Handoff[]>;
+  updateHandoff(id: string, patch: Partial<Pick<Handoff, "status">>): Promise<void>;
 
   logMetric(m: TurnMetric): Promise<void>;
   listMetrics(): Promise<TurnMetric[]>;
@@ -191,6 +192,10 @@ export class InMemoryStore implements Store {
   }
   async listHandoffs() {
     return this.handoffs;
+  }
+  async updateHandoff(hid: string, patch: Partial<Pick<Handoff, "status">>) {
+    const h = this.handoffs.find((x) => x.id === hid);
+    if (h) Object.assign(h, patch);
   }
 
   async logMetric(m: TurnMetric) {

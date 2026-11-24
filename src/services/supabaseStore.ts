@@ -126,6 +126,10 @@ export class SupabaseStore implements Store {
     return (check(await this.db.from("handoffs").select("*").order("created_at", { ascending: false })) ?? []).map(toHandoff);
   }
 
+  async updateHandoff(id: string, patch: Partial<Pick<Handoff, "status">>) {
+    check(await this.db.from("handoffs").update(patch).eq("id", id));
+  }
+
   async logMetric(m: TurnMetric) {
     check(await this.db.from("turn_metrics").insert({
       conversation_id: m.conversationId, provider: m.provider, model: m.model, latency_ms: m.latencyMs,

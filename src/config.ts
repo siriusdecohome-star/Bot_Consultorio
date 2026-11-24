@@ -83,5 +83,11 @@ export const config = {
     followupAfterHours: num("FOLLOWUP_AFTER_HOURS", 20),
   },
 
+  panel: {
+    user: env("PANEL_USER", "recepcion"),
+    /** Sin contraseña, el panel solo abre desde esta PC (no por el túnel) */
+    password: env("PANEL_PASSWORD"),
+  },
+
   port: num("PORT", 3000),
 };

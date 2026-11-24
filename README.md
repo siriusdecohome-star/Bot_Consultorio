@@ -58,6 +58,38 @@ npm run remind -- --followup      # seguimiento YA a la última conversación de
 
 En el simulador: botones **⏰ Recordatorio** y **📣 Seguimiento** (siguen disponibles, casi invisibles, en modo grabación).
 
+## Panel de gestión y pruebas (etapa 6)
+
+**Panel:** http://localhost:3000/panel — usuario `PANEL_USER` (por defecto `recepcion`) y contraseña `PANEL_PASSWORD` del `.env`. Sin contraseña, solo abre desde la misma PC (nunca por el túnel).
+
+- Indicadores: citas del día, próximos 7 días, cancelaciones, derivaciones abiertas, leads sin turno, tiempo de respuesta y costo por conversación.
+- Citas del día con estado, confirmación del paciente y recordatorios enviados (cualquier fecha con el selector).
+- Conversaciones con historial completo; **recepción puede responder** desde el panel y el mensaje llega por el mismo canal (WhatsApp o simulador).
+- Derivaciones con resumen: «Resuelta → vuelve al bot».
+- Leads de la promo sin turno y si ya recibieron seguimiento.
+- Resultados de las pruebas automatizadas.
+
+**Pruebas de calidad** (`npm run test:cases`): 7 casos pedidos + 1 extra, con tiempo de respuesta y costo por conversación. Escribe [reports/test-results.md](reports/test-results.md).
+
+| # | Caso | Qué se verifica |
+|---|---|---|
+| 1 | Horario ocupado | No reserva ni ofrece un horario ocupado; da alternativas |
+| 2 | Cancelación a último momento | Cancela, libera el horario y ofrece reprogramar |
+| 3 | Mensaje confuso | No ejecuta acciones; pide aclaración |
+| 4 | Hablar con una persona | Deriva con resumen y deja de responder como bot |
+| 5 | Fuera de horario | Responde igual y solo ofrece horarios de atención |
+| 6 | Doble reserva | Dos pedidos simultáneos: solo uno se confirma |
+| 7 | Paciente que cambia de idea | Mueve el turno sin duplicar; libera el anterior |
+| 8 | Consulta clínica (extra) | No indica medicamentos |
+
+```powershell
+npm test                                # todas las pruebas (sin IA, sin costo)
+npm run test:cases                      # solo los casos de calidad
+npm run test:cases -- --save            # y guarda los resultados en Supabase (tabla test_results)
+```
+
+Con `LLM_PROVIDER=claude` (u `openai`) los mismos casos corren contra la IA real y el informe sale en `reports/test-results-claude.md`, con tiempos y costos reales.
+
 ## Usar IA real
 
 1. Copiar `.env.example` a `.env`.

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Panel del consultorio</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2325D366'/%3E%3Cpath fill='white' d='M18 16h28v6H18zm0 13h28v6H18zm0 13h18v6H18z'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/panel/panel.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>Panel del consultorio</h1>
+        <p>Clínica Dental Sonrisa Clara · datos ficticios · <span id="updated">cargando…</span></p>
+      </div>
+    </div>
+    <div class="actions">
+      <label class="date">Día <input type="date" id="date" /></label>
+      <button id="today" class="btn">Hoy</button>
+      <a class="btn ghost" href="/" target="_blank" rel="noopener">Abrir simulador ↗</a>
+      <form method="post" action="/panel/logout" style="margin:0"><button class="btn ghost" type="submit">Salir</button></form>
+    </div>
+  </header>
+
+  <main>
+    <section class="kpis" id="kpis"></section>
+
+    <div class="grid">
+      <div class="col-main">
+        <section class="card">
+          <div class="card-head"><h2>Citas del día</h2><span class="hint" id="appt-hint"></span></div>
+          <div class="table-wrap"><table class="tbl" id="appts"></table></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Conversaciones</h2><span class="hint">Clic para ver el historial y responder</span></div>
+          <ul class="convs" id="convs"></ul>
+        </section>
+      </div>
+
+      <div class="col-side">
+        <section class="card">
+          <div class="card-head"><h2>Derivaciones</h2><span class="badge" id="ho-count">0</span></div>
+          <ul class="handoffs" id="handoffs"></ul>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Leads sin turno</h2><span class="hint">Llegaron por la promo</span></div>
+          <ul class="leads" id="leads"></ul>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Rendimiento</h2><span class="hint" id="m-provider"></span></div>
+          <div class="metrics" id="metrics"></div>
+        </section>
+      </div>
+    </div>
+
+    <section class="card">
+      <div class="card-head"><h2>Pruebas automatizadas</h2><span class="hint">npm run test:cases</span></div>
+      <div id="tests"></div>
+    </section>
+  </main>
+
+  <!-- Detalle de conversación -->
+  <div class="drawer-bg" id="drawer-bg"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <h3 id="d-title">Conversación</h3>
+        <p id="d-sub"></p>
+      </div>
+      <button class="icon" id="d-close" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="d-appts" id="d-appts"></div>
+    <div class="thread" id="thread"></div>
+    <form class="reply" id="reply">
+      <input id="reply-text" maxlength="1000" placeholder="Responder como recepción…" autocomplete="off" />
+      <button class="btn" type="submit">Enviar</button>
+    </form>
+  </aside>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/panel/panel.js" type="module"></script>
+</body>
+</html>

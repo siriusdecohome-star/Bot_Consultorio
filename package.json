@@ -18,7 +18,9 @@
     "wa:subscribe": "tsx scripts/wa-subscribe.ts",
     "remind": "tsx scripts/remind.ts",
     "wa:templates": "tsx scripts/wa-templates.ts",
-    "test:reminders": "tsx tests/reminders.ts"
+    "test:reminders": "tsx tests/reminders.ts",
+    "test:cases": "tsx tests/scenarios.ts",
+    "test": "npm run typecheck && npm run smoke && npm run test:whatsapp && npm run test:reminders && npm run test:cases"
   },
   "keywords": [],
   "author": "",

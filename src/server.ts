@@ -12,6 +12,7 @@ import { localKey, systemClock, toLocal, TZ } from "./services/time.js";
 import { ChannelNotifier, WebOutbox } from "./services/notifier.js";
 import { followupMessage, ReminderService } from "./bot/reminders.js";
 import type { WhatsAppSender } from "./channels/whatsappClient.js";
+import { checkCredentials, clearCookie, createPanelRouter, isAuthed, sessionCookie } from "./panel.js";
 
 /**
  * Servidor HTTP: sirve el simulador web y la API que usa.
@@ -58,7 +59,39 @@ if (wa.verifyToken) {
 
 // --- Recordatorios y seguimiento (etapa 5) ---
 const outbox = new WebOutbox();
-const reminders = new ReminderService(services.store, new ChannelNotifier({ whatsapp: waSender, web: outbox }), systemClock);
+const notifier = new ChannelNotifier({ whatsapp: waSender, web: outbox });
+const reminders = new ReminderService(services.store, notifier, systemClock);
+
+// --- Panel de gestión (etapa 6): página y API protegidas ---
+app.use("/api/panel", createPanelRouter({ store: services.store, clock: systemClock, notifier }));
+app.get(["/panel", "/panel/"], (req, res) =>
+  res.sendFile(path.join(ROOT, "private", isAuthed(req) ? "panel.html" : "login.html")));
+app.post("/panel/login", express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
+  // Freno simple contra intentos repetidos: 10 por IP cada 10 minutos.
+  if (!allowedLogin(req.ip ?? "?")) return res.redirect(303, "/panel?error=intentos");
+  if (!checkCredentials(req.body?.user, req.body?.password)) return res.redirect(303, "/panel?error=1");
+  const secure = req.protocol === "https" || req.header("x-forwarded-proto") === "https" || Boolean(req.header("cf-connecting-ip"));
+  res.setHeader("Set-Cookie", sessionCookie(secure));
+  res.redirect(303, "/panel");
+});
+app.post("/panel/logout", (_req, res) => {
+  res.setHeader("Set-Cookie", clearCookie);
+  res.redirect(303, "/panel");
+});
+app.get("/panel/:file", (req, res) => {
+  const file = String(req.params.file);
+  const isPublic = file === "panel.css"; // la hoja de estilos la usa también la pantalla de ingreso
+  if (!/^[a-z0-9-]+\.(js|css)$/.test(file) || (!isPublic && !isAuthed(req))) return res.sendStatus(404);
+  res.sendFile(path.join(ROOT, "private", file));
+});
+const loginHits = new Map<string, number[]>();
+function allowedLogin(ip: string) {
+  const now = Date.now();
+  const list = (loginHits.get(ip) ?? []).filter((t) => now - t < 10 * 60_000);
+  list.push(now);
+  loginHits.set(ip, list);
+  return list.length <= 10;
+}
 let remindersStatus = "desactivados (REMINDERS_ENABLED=false)";
 if (config.reminders.enabled) {
   const tick = async () => {
@@ -220,4 +253,5 @@ app.listen(config.port, () => {
   console.log(`IA: ${bot.providerName} · base: ${services.storeKind} · agenda: ${services.calendarKind} · zona: ${TZ()}`);
   console.log(`WhatsApp: ${whatsappStatus}`);
   console.log(`Recordatorios: ${remindersStatus}`);
+  console.log(`Panel: http://localhost:${config.port}/panel ${config.panel.password ? `(usuario «${config.panel.user}», contraseña en PANEL_PASSWORD)` : "(solo desde esta PC: sin PANEL_PASSWORD)"}`);
 });
