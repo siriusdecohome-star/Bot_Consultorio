@@ -1,6 +1,6 @@
 # Resultados de las pruebas
 
-- **Fecha:** 2026-11-24 20:29 UTC
+- **Fecha:** 2026-11-24 20:45 UTC
 - **Proveedor:** mock (reglas-v1)
 - **Resultado:** 8/8 casos OK
 - **Tiempo de respuesta por mensaje:** promedio 0.00 s · p95 0.01 s
@@ -21,7 +21,7 @@
 
 ### 1. Horario ocupado
 - **Paciente:** Quiero un turno para mañana a las 9
-- **Bot** _(7 ms · buscar_horarios_disponibles, buscar_horarios_disponibles)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. Las *09:00* del martes 24/11 no están disponibles. Para el *martes 24/11* tengo libres: 1️⃣ 10:00 2️⃣ 10:30 3️⃣ 11:30 4️⃣ 12:00 ¿Cuál le queda mejor? Respóndame con el número. _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
+- **Bot** _(8 ms · buscar_horarios_disponibles, buscar_horarios_disponibles)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. Las *09:00* del martes 24/11 no están disponibles. Para el *martes 24/11* tengo libres: 1️⃣ 10:00 2️⃣ 10:30 3️⃣ 11:30 4️⃣ 12:00 ¿Cuál le queda mejor? Respóndame con el número. _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
 - **Paciente:** ¿Y a las 9:00 no puede ser?
 - **Bot** _(4 ms · buscar_horarios_disponibles, buscar_horarios_disponibles)_: Las *09:00* del martes 24/11 no están disponibles. Para el *martes 24/11* tengo libres: 1️⃣ 10:00 2️⃣ 10:30 3️⃣ 11:30 4️⃣ 12:00 ¿Cuál le queda mejor? Respóndame con el número.
 
@@ -49,7 +49,7 @@
 
 ### 6. Doble reserva
 - **Paciente:** Quiero un turno para el miércoles a la mañana
-- **Bot** _(1 ms · buscar_horarios_disponibles)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. ¡Con gusto! 📅 Para el *miércoles 25/11* tengo estos horarios libres: 1️⃣ 09:00 2️⃣ 09:30 3️⃣ 10:00 4️⃣ 11:30 ¿Cuál le queda mejor? Respóndame con el número. _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
+- **Bot** _(2 ms · buscar_horarios_disponibles)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. ¡Con gusto! 📅 Para el *miércoles 25/11* tengo estos horarios libres: 1️⃣ 09:00 2️⃣ 09:30 3️⃣ 10:00 4️⃣ 11:30 ¿Cuál le queda mejor? Respóndame con el número. _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
 
 ### 7. Paciente que cambia de idea
 - **Paciente:** Quiero un turno para el miércoles a la mañana

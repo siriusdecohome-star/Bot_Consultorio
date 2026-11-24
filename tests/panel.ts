@@ -1,7 +1,8 @@
 /**
  * Pruebas del panel (punto 2) y de la zona de aprendizaje (punto 3), en memoria:
  * bandeja con traspaso y pausa del bot, agenda, pacientes, estadísticas, costos,
- * edición del conocimiento con efecto inmediato, documentos PDF con búsqueda y probador.
+ * edición del conocimiento con efecto inmediato, documentos PDF con búsqueda, probador
+ * y exportación a CSV (punto 6).
  * Uso: npm run test:panel
  */
 import assert from "node:assert/strict";
@@ -207,6 +208,53 @@ try {
     const chunks = chunkText(text, 900);
     assert.ok(chunks.length > 1);
     assert.ok(chunks.every((c) => c.length <= 900));
+  });
+
+  // ---------------- Exportar a CSV ----------------
+  const download = async (kind: string, cookie: string, extra = "") => {
+    const r = await fetch(`${base}/export/${kind}?clinic=${CLINIC_A}${extra}`, { headers: { cookie } });
+    // Se leen los bytes: r.text() descarta el BOM al decodificar.
+    const bytes = Buffer.from(await r.arrayBuffer());
+    return { status: r.status, type: r.headers.get("content-type") ?? "", disp: r.headers.get("content-disposition") ?? "", bom: bytes.subarray(0, 3).toString("hex") === "efbbbf", body: bytes.subarray(3).toString("utf8") };
+  };
+
+  await check("CSV: UTF-8 con BOM, separador «;», descarga con nombre de archivo", async () => {
+    const r = await download("turnos", recep, "&from=2026-11-20&to=2026-11-30");
+    assert.equal(r.status, 200);
+    assert.match(r.type, /text\/csv/);
+    assert.match(r.disp, /attachment; filename="sonrisa-clara-turnos-2026-11-23\.csv"/);
+    assert.ok(r.bom, "debe empezar con BOM (EF BB BF)");
+    const [head, ...rows] = r.body.trim().split("\r\n");
+    assert.equal(head, "Fecha;Hora;Paciente;Teléfono;Canal;Tratamiento;Estado;Confirmó;Recordatorio 24 h;Recordatorio 2 h;Reservado;Cancelado");
+    assert.ok(rows.some((l) => l.includes("Ana Pérez") && l.includes("cancelada")));
+  });
+
+  await check("CSV: todos los listados descargan; costos solo para el admin", async () => {
+    for (const k of ["pacientes", "conversaciones", "lista-espera", "estadisticas"]) {
+      const r = await download(k, recep);
+      assert.equal(r.status, 200, k);
+      assert.ok(r.body.split("\r\n").length >= 2, `${k} debe tener encabezado`);
+    }
+    assert.equal((await download("costos", recep)).status, 403);
+    const c = await download("costos", admin);
+    assert.equal(c.status, 200);
+    assert.match(c.body, /Mes;Conversaciones;Mensajes/);
+    assert.equal((await download("otra-cosa", admin)).status, 404);
+  });
+
+  await check("CSV: escapa comillas y «;», evita fórmulas y usa coma decimal", async () => {
+    const { toCsv } = await import("../src/csv.js");
+    const out = toCsv(["a", "b", "c", "d"], [["=HYPERLINK(\"x\")", "uno; dos", 0.0275, "dice \"hola\""]]);
+    const line = out.slice(1).split("\r\n")[1]!;
+    assert.equal(line, `"'=HYPERLINK(""x"")";"uno; dos";0,0275;"dice ""hola"""`);
+    const phone = toCsv(["t"], [["+5491100001001"], ["+1 =cmd"]]).slice(1).split("\r\n");
+    assert.equal(phone[1], `"=""+5491100001001"""`, "un teléfono sale como texto fijo");
+    assert.equal(phone[2], "'+1 =cmd", "lo que no es un teléfono se protege igual");
+  });
+
+  await check("CSV: la clínica B no se puede exportar con un usuario de la A", async () => {
+    const r = await fetch(`${base}/export/pacientes?clinic=altamira`, { headers: { cookie: recep } });
+    assert.equal(r.status, 403);
   });
 } finally {
   server.close();

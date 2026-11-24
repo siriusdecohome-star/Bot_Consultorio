@@ -10,6 +10,7 @@ import type { Store, TurnMetric } from "./services/store.js";
 import type { ClinicKnowledge } from "./clinics/types.js";
 import { buildCosts, buildStats, conversationStatus, waitingForHuman } from "./analytics.js";
 import { docKind, MAX_DOC_BYTES, toChunks } from "./documents.js";
+import { toCsv, type Cell } from "./csv.js";
 import { localKey, toLocal, TZ, type Clock } from "./services/time.js";
 
 /**
@@ -535,6 +536,92 @@ export function createPanelRouter(opts: PanelOptions): Router {
       console.error("[panel] probador:", err);
       res.status(500).json({ error: "El asistente no pudo responder" });
     }
+  });
+
+  // ===================================================================
+  // Exportar listados y métricas a CSV (Excel en español)
+  // ===================================================================
+
+  r.get("/export/:kind", async (req: PanelRequest, res) => {
+    const store = req.store!;
+    const kind = String(req.params.kind);
+    const tz = TZ();
+    const fdt = (iso: string | null | undefined) => (iso ? DateTime.fromISO(iso, { zone: "utc" }).setZone(tz).toFormat("yyyy-MM-dd HH:mm") : "");
+    const phone = (p: string | undefined) => (!p ? "" : p.startsWith("web:") ? "Simulador web" : p);
+    const CH: Record<string, string> = { whatsapp: "WhatsApp", web: "Simulador", cli: "Consola", test: "Prueba" };
+    let headers: string[] = [];
+    let rows: Cell[][] = [];
+
+    if (kind === "turnos") {
+      const from = typeof req.query.from === "string" ? DateTime.fromISO(req.query.from, { zone: tz }) : toLocal(clock()).minus({ days: 30 }).startOf("day");
+      const to = typeof req.query.to === "string" ? DateTime.fromISO(req.query.to, { zone: tz }).endOf("day") : toLocal(clock()).plus({ days: 30 }).endOf("day");
+      const [appts, patients] = await Promise.all([store.listAppointments({ from: from.toUTC().toISO()!, to: to.toUTC().toISO()! }), store.listPatients()]);
+      const byId = new Map(patients.map((p) => [p.id, p]));
+      headers = ["Fecha", "Hora", "Paciente", "Teléfono", "Canal", "Tratamiento", "Estado", "Confirmó", "Recordatorio 24 h", "Recordatorio 2 h", "Reservado", "Cancelado"];
+      rows = appts.map((a) => {
+        const p = byId.get(a.patientId);
+        const s = toLocal(a.start);
+        return [s.toISODate(), s.toFormat("HH:mm"), a.patientName, phone(p?.phone), CH[p?.channel ?? ""] ?? p?.channel, a.treatment, a.status,
+          a.confirmedByPatient, a.reminder24Sent, a.reminder2Sent, fdt(a.createdAt), fdt(a.cancelledAt)];
+      });
+    } else if (kind === "pacientes") {
+      const [patients, appts, convs] = await Promise.all([store.listPatients(), store.listAppointments(), store.listConversations()]);
+      const now = clock().toISOString();
+      headers = ["Paciente", "Teléfono", "Canal", "Origen", "Tipo", "Turnos", "Cancelados", "Próximo turno", "Última visita", "Último contacto", "Alta"];
+      rows = patients.filter((p) => p.channel !== "test").map((p) => {
+        const mine = appts.filter((a) => a.patientId === p.id && a.status !== "reprogramada");
+        const next = mine.find((a) => a.start >= now && ["confirmada", "pendiente"].includes(a.status));
+        const last = mine.filter((a) => a.start < now && a.status !== "cancelada").at(-1);
+        const conv = convs.find((c) => c.patientId === p.id);
+        const lastMsg = conv ? [...conv.messages].reverse().find((m) => m.role === "patient")?.at : undefined;
+        return [p.name ?? "", phone(p.phone), CH[p.channel] ?? p.channel, p.source ?? "", mine.length ? "Con turno" : "Consulta",
+          mine.length, mine.filter((a) => a.status === "cancelada").length, fdt(next?.start), fdt(last?.start), fdt(lastMsg ?? p.createdAt), fdt(p.createdAt)];
+      });
+    } else if (kind === "conversaciones") {
+      const [convs, patients, handoffs] = await Promise.all([store.listConversations(), store.listPatients(), store.listHandoffs()]);
+      const byId = new Map(patients.map((p) => [p.id, p]));
+      const ESTADO: Record<string, string> = { bot: "Con el bot", persona: "Con una persona", pausada: "Bot en pausa" };
+      headers = ["Paciente", "Teléfono", "Canal", "Origen", "Estado", "Espera respuesta", "Mensajes", "Derivaciones", "Primer mensaje", "Último mensaje", "Último texto"];
+      rows = convs.filter((c) => c.channel !== "test").map((c) => {
+        const p = byId.get(c.patientId);
+        return [p?.name ?? "", phone(p?.phone), CH[c.channel] ?? c.channel, p?.source ?? "", ESTADO[conversationStatus(c)], waitingForHuman(c),
+          c.messages.length, handoffs.filter((h) => h.conversationId === c.id).length, fdt(c.messages[0]?.at ?? c.createdAt),
+          fdt(c.messages.at(-1)?.at ?? c.updatedAt), (c.messages.at(-1)?.text ?? "").replace(/\s+/g, " ").slice(0, 200)];
+      });
+    } else if (kind === "lista-espera") {
+      const list = await store.listWaitlist();
+      headers = ["Paciente", "Tratamiento", "Desde", "Hasta", "Franja", "Estado", "Horario ofrecido", "Horarios rechazados", "Anotado"];
+      rows = list.map((e) => [e.patientName, e.treatment, e.fromDate, e.toDate, e.franja, e.status, e.offeredSlot?.replace("T", " ") ?? "",
+        e.declinedSlots.map((s) => s.replace("T", " ")).join(", "), fdt(e.createdAt)]);
+    } else if (kind === "estadisticas") {
+      const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 365);
+      const [patients, conversations, appointments, handoffs] = await Promise.all([store.listPatients(), store.listConversations(), store.listAppointments(), store.listHandoffs()]);
+      const notTest = <T extends { channel: string }>(x: T) => x.channel !== "test";
+      const s = buildStats({ tz, now: clock(), days, patients: patients.filter(notTest), conversations: conversations.filter(notTest), appointments, handoffs });
+      headers = ["Día", "Consultas", "Pacientes nuevos", "Turnos agendados", "Turnos cancelados"];
+      rows = s.daily.map((d) => [d.date, d.consultas, d.pacientesNuevos, d.turnosAgendados, d.turnosCancelados]);
+      rows.push(["Total", s.totals.consultas, s.totals.pacientesNuevos, s.totals.turnosAgendados, s.totals.turnosCancelados]);
+      rows.push([]);
+      rows.push(["Conversión (nuevos con turno)", s.conversion.tasa, `${s.conversion.conTurno} de ${s.conversion.pacientesNuevos}`]);
+      rows.push(["Resueltas por el bot", s.resolucion.bot, `de ${s.resolucion.total}`]);
+      rows.push(["Traspasadas a una persona", s.resolucion.traspasadas, `de ${s.resolucion.total}`]);
+      for (const t of s.tratamientos) rows.push([`Tratamiento: ${t.name}`, t.count]);
+    } else if (kind === "costos") {
+      if (req.membership!.role !== "admin") return res.status(403).json({ error: "Solo el admin ve los costos." });
+      const c = buildCosts(await store.listMetrics(), tz, clock());
+      headers = ["Mes", "Conversaciones", "Mensajes", "Tokens de entrada", "Tokens de salida", "Tokens de caché", "Costo USD", "Costo por conversación USD"];
+      rows = c.months.map((m) => [m.month, m.conversations, m.turns, m.inputTokens, m.outputTokens, m.cacheReadTokens, m.costUsd, m.costPerConversation]);
+      rows.push([]);
+      rows.push([`Proyección ${c.currentMonth.month}`, c.currentMonth.projectedConversations, "", "", "", "", c.currentMonth.projectedCost, ""]);
+    } else {
+      return res.status(404).json({ error: "Exportación desconocida" });
+    }
+
+    const name = `${req.runtime!.profile.id}-${kind}-${toLocal(clock()).toISODate()}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(toCsv(headers, rows));
   });
 
   return r;

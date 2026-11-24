@@ -89,6 +89,7 @@
             <button data-f="pausada">Bot en pausa</button>
           </div>
           <input class="search" id="conv-q" type="search" placeholder="Buscar paciente o mensaje…" />
+          <button class="btn ghost small" type="button" data-export="conversaciones" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
         </div>
       </div>
       <section class="card"><ul class="convs" id="inbox"></ul></section>
@@ -103,12 +104,13 @@
           <span class="hint" id="wk-label"></span>
           <button class="btn ghost small" id="wk-next" aria-label="Semana siguiente">▶</button>
           <button class="btn small" id="wk-today">Esta semana</button>
+          <button class="btn ghost small" type="button" data-export="turnos" title="Descargar en CSV (se abre en Excel)">⬇ Turnos CSV</button>
         </div>
       </div>
       <div class="week" id="week"></div>
       <p class="hint">Los turnos los reserva el asistente; desde acá se marca la asistencia o se cancela (el horario se libera en el calendario y se ofrece a la lista de espera).</p>
       <section class="card">
-        <div class="card-head"><h2>Lista de espera</h2><span class="hint" id="wl-hint"></span></div>
+        <div class="card-head"><h2>Lista de espera</h2><span class="actions"><span class="hint" id="wl-hint"></span><button class="btn ghost small" type="button" data-export="lista-espera" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button></span></div>
         <div class="table-wrap"><table class="tbl" id="waitlist"></table></div>
       </section>
     </section>
@@ -124,6 +126,7 @@
             <button data-f="consulta">Solo consultas (leads)</button>
           </div>
           <input class="search" id="pat-q" type="search" placeholder="Buscar nombre, teléfono u origen…" />
+          <button class="btn ghost small" type="button" data-export="pacientes" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
         </div>
       </div>
       <section class="card"><div class="table-wrap"><table class="tbl" id="patients"></table></div></section>
@@ -141,6 +144,7 @@
         <div class="seg" id="stats-range" role="group" aria-label="Período">
           <button data-d="7">7 días</button><button data-d="30" class="on">30 días</button><button data-d="90">90 días</button>
         </div>
+        <button class="btn ghost small" type="button" data-export="estadisticas" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
       </div>
       <section class="kpis" id="stats-kpis"></section>
       <div class="grid2">
@@ -154,7 +158,7 @@
 
     <!-- ================= Costos ================= -->
     <section class="view" data-view="costos" hidden>
-      <div class="view-head"><h2>Costos de la IA</h2><span class="hint" id="cost-provider"></span></div>
+      <div class="view-head"><h2>Costos de la IA</h2><span class="actions"><span class="hint" id="cost-provider"></span><button class="btn ghost small" type="button" data-export="costos" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button></span></div>
       <p class="note-box" id="cost-note" hidden></p>
       <section class="kpis" id="cost-kpis"></section>
       <div class="grid2">

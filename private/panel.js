@@ -708,6 +708,17 @@ $("#tester-form").addEventListener("submit", async (e) => {
 });
 
 // =====================================================================
+// Exportar a CSV: descarga directa (la cookie de sesión viaja sola; el servidor verifica clínica y rol)
+// =====================================================================
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-export]");
+  if (!b) return;
+  const p = new URLSearchParams({ clinic: state.clinic ?? "" });
+  if (b.dataset.export === "estadisticas") p.set("days", String(state.statsDays));
+  location.href = `/api/panel/export/${b.dataset.export}?${p}`;
+});
+
+// =====================================================================
 // Inicio: usuario, clínicas y rol
 // =====================================================================
 async function init() {
