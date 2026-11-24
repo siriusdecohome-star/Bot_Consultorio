@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { auth, calendar, type calendar_v3 } from "@googleapis/calendar";
 import type { DateTime } from "luxon";
 import type { CalendarEvent, CalendarService } from "./calendar.js";
@@ -12,7 +13,13 @@ export class GoogleCalendarService implements CalendarService {
   private api: calendar_v3.Calendar;
 
   constructor(private calendarId: string, keyFile: string) {
-    const client = new auth.GoogleAuth({ keyFile, scopes: ["https://www.googleapis.com/auth/calendar.events"] });
+    const credentials = JSON.parse(readFileSync(keyFile, "utf8"));
+    // Cliente JWT de cuenta de servicio, con el permiso mínimo: solo eventos.
+    const client = new auth.JWT({
+      email: credentials.client_email,
+      key: credentials.private_key,
+      scopes: ["https://www.googleapis.com/auth/calendar.events"],
+    });
     this.api = calendar({ version: "v3", auth: client });
   }
 

@@ -10,7 +10,8 @@
     "smoke": "tsx tests/smoke.ts",
     "typecheck": "tsc -p .",
     "check": "tsx scripts/check.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "test:integration": "tsx tests/integration.ts"
   },
   "keywords": [],
   "author": "",
