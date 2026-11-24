@@ -174,5 +174,7 @@ export function buildCosts(metrics: TurnMetric[], tz: string, now: Date) {
     },
     byModel: [...byModel.entries()].map(([model, g]) => ({ model, ...g })).sort((a, b) => b.costUsd - a.costUsd),
     onlyMock: metrics.length > 0 && metrics.every((m) => m.provider === "mock"),
+    /** Hay métricas de los datos de ejemplo (simuladas, no medidas). */
+    simulated: metrics.some((m) => m.model.includes("(simulado)")),
   };
 }

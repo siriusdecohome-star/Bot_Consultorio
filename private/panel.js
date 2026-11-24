@@ -525,10 +525,12 @@ async function loadCosts() {
   const c = await api("/costs");
   $("#cost-provider").textContent = `IA actual: ${c.provider}`;
   const note = $("#cost-note");
-  note.hidden = !(c.onlyMock || !c.months.length);
-  note.textContent = c.months.length
-    ? "Hasta ahora respondió el modo sin IA (reglas), que no tiene costo. Con LLM_PROVIDER=claude u openai, cada mensaje registra sus tokens y su costo."
-    : "Todavía no hay mensajes registrados en esta clínica.";
+  note.hidden = !(c.onlyMock || c.simulated || !c.months.length);
+  note.textContent = c.simulated
+    ? "Incluye los datos de ejemplo: sus costos están simulados con los precios de Claude Haiku 5.5 (figuran como «simulado»). Los mensajes reales con IA se suman con su costo medido."
+    : c.months.length
+      ? "Hasta ahora respondió el modo sin IA (reglas), que no tiene costo. Con LLM_PROVIDER=claude u openai, cada mensaje registra sus tokens y su costo."
+      : "Todavía no hay mensajes registrados en esta clínica.";
   const m = c.currentMonth;
   const monthName = new Date(`${m.month}-15T12:00:00Z`).toLocaleDateString("es", { month: "long", year: "numeric", timeZone: "UTC" });
   $("#cost-kpis").innerHTML = kpiHtml([

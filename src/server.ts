@@ -40,6 +40,11 @@ if (services.calendarKind === "memoria") {
     await withClinic(rt.profile, () => seedCalendar(rt.calendar, systemClock, rt.profile.primary ? "a" : "b"));
   }
 }
+// Base en memoria (entorno de pruebas): 30 días de datos ficticios para que el panel tenga contenido.
+if (services.storeKind === "memoria" && process.env.DEMO_DATA !== "false") {
+  const { loadDemoMemory } = await import("./data/loadDemo.js");
+  for (const rt of runtimes.values()) await loadDemoMemory(rt.store, rt.calendar, rt.profile, systemClock());
+}
 
 const auth = createAuth(services.storeKind);
 

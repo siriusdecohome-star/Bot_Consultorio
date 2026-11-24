@@ -342,6 +342,17 @@ export class InMemoryStore implements Store {
     return structuredClone(strip(w));
   }
 
+  /** Carga datos de ejemplo ya armados (ids y fechas propios) en esta clínica. Solo en memoria. */
+  importDemo(d: { patients: Patient[]; conversations: Conversation[]; appointments: Appointment[]; handoffs: Handoff[]; metrics: TurnMetric[]; waitlist: WaitlistEntry[] }) {
+    const c = this.clinicId;
+    for (const p of d.patients) this.data.patients.set(p.id, { ...p, clinicId: c });
+    for (const v of d.conversations) this.data.conversations.set(v.id, { ...structuredClone(v), clinicId: c });
+    for (const a of d.appointments) this.data.appointments.set(a.id, { ...a, clinicId: c });
+    for (const h of d.handoffs) this.data.handoffs.push({ ...h, clinicId: c });
+    for (const m of d.metrics) this.data.metrics.push({ ...m, clinicId: c });
+    for (const w of d.waitlist) this.data.waitlist.push({ ...structuredClone(w), clinicId: c });
+  }
+
   async updateKnowledge(k: ClinicKnowledge) {
     this.data.knowledge.set(this.clinicId, structuredClone(k));
   }

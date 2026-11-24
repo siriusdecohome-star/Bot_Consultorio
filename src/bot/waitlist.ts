@@ -73,7 +73,8 @@ export class WaitlistService {
     const busy = new Set(all.filter((e) => e.status === "ofrecido").map((e) => e.id));
     for (const e of all.filter((x) => x.status === "esperando" && !busy.has(x.id) && this.matches(x, slot))) {
       const patient = await this.store.getPatient(e.patientId);
-      if (!patient) continue;
+      // Los pacientes de ejemplo no tienen un teléfono real al que escribir.
+      if (!patient || patient.id.startsWith("demo_")) continue;
       // Si ya tiene un turno activo ese mismo día, no se le ofrece otro.
       const sameDay = await this.store.listAppointments({
         patientId: patient.id, from: start.startOf("day").toUTC().toISO()!, to: start.endOf("day").toUTC().toISO()!, status: ["confirmada", "pendiente"],

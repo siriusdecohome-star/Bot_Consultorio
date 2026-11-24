@@ -216,3 +216,9 @@ details.card[open] summary { margin-bottom: 10px; }
   .grid2 { grid-template-columns: 1fr; }
   .tabs { padding: 6px 16px 0; }
 }
+
+/* Costos: la tabla por mes ocupa más ancho y los montos no se parten */
+.view[data-view="costos"] .grid2 { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
+#cost-months, #cost-models { min-width: 0; }
+#cost-months td, #cost-models td, #cost-months th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 1050px) { .view[data-view="costos"] .grid2 { grid-template-columns: 1fr; } }
