@@ -30,14 +30,25 @@ app.use(express.static(path.join(ROOT, "public")));
 
 // --- Canal WhatsApp (etapa 4): se activa si el .env tiene token e id del número ---
 const wa = config.whatsapp;
-let whatsappStatus = "desactivado (faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)";
-if (wa.token && wa.phoneNumberId) {
+let whatsappStatus = "desactivado (falta WHATSAPP_VERIFY_TOKEN)";
+if (wa.verifyToken) {
   const { WhatsAppCloudClient } = await import("./channels/whatsappClient.js");
   const { createWhatsAppRouter } = await import("./channels/whatsappWebhook.js");
-  app.use("/webhook/whatsapp", createWhatsAppRouter({
-    bot, sender: new WhatsAppCloudClient(), verifyToken: wa.verifyToken, appSecret: wa.appSecret,
-  }));
-  whatsappStatus = `activo en /webhook/whatsapp${wa.appSecret ? "" : " (⚠ sin WHATSAPP_APP_SECRET: no se valida la firma)"}`;
+  const canSend = Boolean(wa.token && wa.phoneNumberId);
+  // Sin token igual se monta el webhook: Meta puede verificarlo, y los mensajes
+  // entrantes se registran en la terminal aunque todavía no se puedan responder.
+  const sender = canSend ? new WhatsAppCloudClient() : {
+    async sendText(to: string) { console.log(`[whatsapp] (sin WHATSAPP_TOKEN) no se pudo responder a ${to.slice(0, 4)}•••`); },
+    async sendButtons(to: string) { console.log(`[whatsapp] (sin WHATSAPP_TOKEN) no se pudo responder a ${to.slice(0, 4)}•••`); },
+    async sendTemplate() {},
+    async markReadAndTyping() {},
+  };
+  app.use("/webhook/whatsapp", createWhatsAppRouter({ bot, sender, verifyToken: wa.verifyToken, appSecret: wa.appSecret }));
+  whatsappStatus = [
+    "webhook en /webhook/whatsapp",
+    canSend ? "envío activo" : "⚠ sin WHATSAPP_TOKEN/WHATSAPP_PHONE_NUMBER_ID: recibe pero no responde",
+    wa.appSecret ? "" : "⚠ sin WHATSAPP_APP_SECRET: no se valida la firma",
+  ].filter(Boolean).join(" · ");
 }
 
 // --- Límite de uso por IP: protege el saldo de la API si se comparte la demo en público ---
