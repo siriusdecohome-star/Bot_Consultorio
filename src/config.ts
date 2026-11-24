@@ -1,0 +1,53 @@
+import "dotenv/config";
+
+/** Lee una variable de entorno con valor por defecto. Nunca hay claves hardcodeadas. */
+function env(name: string, fallback = ""): string {
+  return process.env[name]?.trim() || fallback;
+}
+
+function num(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && process.env[name] !== "" && process.env[name] !== undefined ? v : fallback;
+}
+
+export type ProviderName = "claude" | "openai" | "mock";
+
+export const config = {
+  /** claude | openai | mock (mock = sin clave, respuestas guionadas para demo y pruebas) */
+  llmProvider: env("LLM_PROVIDER", "mock") as ProviderName,
+
+  claude: {
+    model: env("CLAUDE_MODEL", "claude-opus-5-5"),
+    /** low | medium | high — para un chat de turnos cortos, "low" alcanza y es más barato y rápido */
+    effort: env("CLAUDE_EFFORT", "low") as "low" | "medium" | "high",
+    /** Precios USD por millón de tokens (verificar en la página oficial de precios) */
+    priceIn: num("CLAUDE_PRICE_INPUT_PER_MTOK", 4),
+    priceOut: num("CLAUDE_PRICE_OUTPUT_PER_MTOK", 20),
+    priceCacheRead: num("CLAUDE_PRICE_CACHE_READ_PER_MTOK", 0.2),
+  },
+
+  openai: {
+    model: env("OPENAI_MODEL", "gpt-5.5"),
+    /** Precios USD por millón de tokens: completar desde la página oficial de OpenAI */
+    priceIn: num("OPENAI_PRICE_INPUT_PER_MTOK", 0),
+    priceOut: num("OPENAI_PRICE_OUTPUT_PER_MTOK", 0),
+  },
+
+  clinic: {
+    timezone: env("CLINIC_TIMEZONE", "America/Argentina/Buenos_Aires"),
+    /** Duración de cada turno en minutos */
+    slotMinutes: num("SLOT_MINUTES", 30),
+  },
+
+  supabase: {
+    url: env("SUPABASE_URL"),
+    secretKey: env("SUPABASE_SECRET_KEY"),
+  },
+
+  google: {
+    calendarId: env("GOOGLE_CALENDAR_ID"),
+    keyFile: env("GOOGLE_SERVICE_ACCOUNT_JSON_PATH", "secrets/google-service-account.json"),
+  },
+
+  port: num("PORT", 3000),
+};

@@ -1,0 +1,21 @@
+# Dependencias y compilados
+node_modules/
+dist/
+
+# Secretos: nunca subir
+.env
+.env.*
+!.env.example
+*.pem
+credentials*.json
+service-account*.json
+google-*.json
+
+# Resultados locales
+reports/*.local.*
+*.log
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+secrets/

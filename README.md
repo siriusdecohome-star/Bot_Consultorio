@@ -1,0 +1,45 @@
+# Bot de citas con IA para consultorios odontológicos (demo)
+
+Asistente que atiende pacientes por WhatsApp: responde consultas, agenda, reprograma, cancela y deriva a una persona. **Proyecto de portafolio con datos ficticios.**
+
+> Estado: **Etapa 1 lista** (esqueleto y motor con herramientas). El README completo llega en la etapa 7.
+
+## Probar en 1 minuto (sin claves)
+
+```powershell
+npm install
+npm run smoke   # conversación guionada con verificaciones
+npm run chat    # chat por consola
+```
+
+Por defecto `LLM_PROVIDER=mock`: un motor de reglas que usa las mismas herramientas que la IA, sin costo.
+
+## Usar IA real
+
+1. Copiar `.env.example` a `.env`.
+2. Poner `LLM_PROVIDER=claude` y la clave en `ANTHROPIC_API_KEY` (u `openai` + `OPENAI_API_KEY`).
+3. `npm run chat`.
+
+## Conectar Supabase y Google Calendar (etapa 2)
+
+Seguí [docs/guia-cuentas-supabase-google.md](docs/guia-cuentas-supabase-google.md) y después:
+
+```powershell
+npm run check   # verifica IA, Supabase y Google Calendar sin mostrar claves
+npm run seed    # carga turnos de ejemplo ficticios en el calendario
+```
+
+Si falta alguna credencial, el bot usa memoria para esa parte y la demo sigue funcionando.
+
+## Estructura
+
+```
+src/
+  bot/engine.ts        motor único (todos los canales pasan por acá)
+  bot/tools.ts         herramientas: horarios, crear/cancelar/reprogramar cita, derivar
+  bot/systemPrompt.ts  reglas y tono del asistente
+  llm/                 proveedores intercambiables: claude | openai | mock
+  services/            agenda, base de datos y fechas (en memoria por ahora)
+  data/                base de conocimiento y datos de ejemplo ficticios
+tests/smoke.ts         prueba de punta a punta
+```

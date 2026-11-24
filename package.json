@@ -1,0 +1,33 @@
+{
+  "name": "bot-consultorio",
+  "version": "1.0.0",
+  "description": "Bot de citas con IA para consultorios odontologicos (demo de portafolio)",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "chat": "tsx src/cli.ts",
+    "smoke": "tsx tests/smoke.ts",
+    "typecheck": "tsc -p .",
+    "check": "tsx scripts/check.ts",
+    "seed": "tsx scripts/seed.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.13.0",
+    "@googleapis/calendar": "^20.2.0",
+    "@supabase/supabase-js": "^2.119.2",
+    "dotenv": "^18.0.10",
+    "luxon": "^3.7.2",
+    "openai": "^7.63.0"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

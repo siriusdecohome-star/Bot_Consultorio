@@ -1,0 +1,62 @@
+/**
+ * Verifica la configuración del .env sin mostrar ninguna clave.
+ * Uso: npm run check
+ */
+import { existsSync } from "node:fs";
+import { config } from "../src/config.js";
+
+const ok = (m: string) => console.log(`✅ ${m}`);
+const bad = (m: string) => console.log(`❌ ${m}`);
+const skip = (m: string) => console.log(`⚪ ${m}`);
+let failures = 0;
+
+console.log("Verificando configuración…\n");
+
+// --- IA ---
+const p = config.llmProvider;
+if (p === "mock") skip("IA: LLM_PROVIDER=mock (sin IA real; las respuestas son por reglas)");
+else if (p === "claude") process.env.ANTHROPIC_API_KEY ? ok(`IA: Claude (${config.claude.model}), clave cargada`) : (bad("IA: falta ANTHROPIC_API_KEY"), failures++);
+else if (p === "openai") process.env.OPENAI_API_KEY ? ok(`IA: OpenAI (${config.openai.model}), clave cargada`) : (bad("IA: falta OPENAI_API_KEY"), failures++);
+else (bad(`IA: LLM_PROVIDER inválido: ${p}`), failures++);
+
+// --- Supabase ---
+if (!config.supabase.url && !config.supabase.secretKey) {
+  skip("Supabase: sin configurar → se usa base en memoria");
+} else if (!config.supabase.url || !config.supabase.secretKey) {
+  bad("Supabase: falta SUPABASE_URL o SUPABASE_SECRET_KEY"); failures++;
+} else if (!/^https:\/\/.+\.supabase\.co\/?$/.test(config.supabase.url)) {
+  bad("Supabase: SUPABASE_URL debería tener la forma https://xxxx.supabase.co"); failures++;
+} else {
+  try {
+    const { SupabaseStore } = await import("../src/services/supabaseStore.js");
+    const n = await new SupabaseStore(config.supabase.url, config.supabase.secretKey).ping();
+    ok(`Supabase: conectado, tabla patients con ${n} registros`);
+  } catch (e) {
+    const msg = (e as Error).message;
+    bad(`Supabase: ${msg}`);
+    if (/relation .* does not exist|Could not find the table|PGRST205|42P01|HTTP 404/i.test(msg)) console.log("   → Falta ejecutar supabase/schema.sql en el SQL Editor.");
+    if (/Invalid API key|JWT|401/i.test(msg)) console.log("   → Revisá SUPABASE_SECRET_KEY (debe ser la clave secreta, no la pública).");
+    failures++;
+  }
+}
+
+// --- Google Calendar ---
+if (!config.google.calendarId) {
+  skip("Google Calendar: sin GOOGLE_CALENDAR_ID → se usa agenda en memoria");
+} else if (!existsSync(config.google.keyFile)) {
+  bad(`Google Calendar: no encuentro el archivo de clave en ${config.google.keyFile}`); failures++;
+} else {
+  try {
+    const { GoogleCalendarService } = await import("../src/services/googleCalendar.js");
+    const name = await new GoogleCalendarService(config.google.calendarId, config.google.keyFile).ping();
+    ok(`Google Calendar: conectado al calendario "${name}"`);
+  } catch (e: any) {
+    bad(`Google Calendar: ${e?.message ?? e}`);
+    if (e?.code === 404) console.log("   → El calendario no existe o no está compartido con el correo de la cuenta de servicio.");
+    if (e?.code === 403) console.log("   → Revisá que la Google Calendar API esté habilitada y que el permiso sea «Hacer cambios en eventos».");
+    failures++;
+  }
+}
+
+console.log(failures ? `\n${failures} problema(s) para revisar.` : "\nTodo listo.");
+process.exitCode = failures ? 1 : 0;
