@@ -100,6 +100,23 @@ export const toolDefs: ToolDef[] = [
     },
   },
   {
+    name: "anotar_lista_espera",
+    description:
+      "Anota al paciente en la lista de espera cuando no hay horarios libres que le sirvan. Si se libera un turno en su rango de días y franja, el sistema se lo ofrece automáticamente por este chat. Confirme el rango con el paciente antes de llamarla.",
+    parameters: {
+      type: "object",
+      properties: {
+        nombre_completo: { type: "string", description: "Nombre y apellido del paciente." },
+        tratamiento: { type: "string", description: "Motivo o tratamiento." },
+        fecha_desde: { type: "string", description: "Primer día aceptable, YYYY-MM-DD." },
+        fecha_hasta: { type: "string", description: "Último día aceptable, YYYY-MM-DD." },
+        franja: { type: "string", enum: ["manana", "tarde", "cualquiera"] },
+      },
+      required: ["nombre_completo", "tratamiento", "fecha_desde", "fecha_hasta", "franja"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "buscar_en_documentos",
     description:
       "Busca en los documentos que subió el consultorio (protocolos, indicaciones, preguntas frecuentes ampliadas). Úsela cuando la pregunta no se responde con la información del prompt, antes de decir que no sabe. Responda solo con lo que devuelva.",
@@ -126,6 +143,8 @@ export interface ToolContext {
   clock: Clock;
   patient: Patient;
   conversation: Conversation;
+  /** Se liberó un horario (hora local YYYY-MM-DDTHH:mm): se ofrece a la lista de espera. */
+  onSlotFreed?: (slot: string) => void;
 }
 
 const view = (a: Appointment) => ({
@@ -244,6 +263,7 @@ export function makeExecutor(ctx: ToolContext) {
         if (a.status === "cancelada") return { ok: false, error: "ya_cancelada" };
         if (a.calendarEventId) await ctx.calendar.deleteEvent(a.calendarEventId);
         await ctx.store.updateAppointment(a.id, { status: "cancelada", cancelledAt: ctx.clock().toISOString() });
+        ctx.onSlotFreed?.(localKey(toLocal(a.start)));
         const start = toLocal(a.start);
         const lastMinute = start.diff(toLocal(ctx.clock()), "hours").hours < 2;
         return {
@@ -267,6 +287,7 @@ export function makeExecutor(ctx: ToolContext) {
             const nueva = await book(a.patientName, a.treatment, start);
             if (a.calendarEventId) await ctx.calendar.deleteEvent(a.calendarEventId);
             await ctx.store.updateAppointment(a.id, { status: "reprogramada" });
+            ctx.onSlotFreed?.(localKey(toLocal(a.start)));
             return { ok: true, anterior: view(a), nueva: view(nueva) };
           });
         });
@@ -288,6 +309,21 @@ export function makeExecutor(ctx: ToolContext) {
         });
         ctx.conversation.handedOff = true;
         return { ok: true, derivacion_id: h.id, mensaje: "Una persona del equipo continuará la conversación en horario de atención." };
+      }
+
+      case "anotar_lista_espera": {
+        const today = toLocal(ctx.clock()).toISODate()!;
+        let desde = String(input.fecha_desde ?? "");
+        let hasta = String(input.fecha_hasta ?? "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || desde < today) desde = today;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(hasta) || hasta < desde) hasta = DateTime.fromISO(desde).plus({ days: 7 }).toISODate()!;
+        const nombre = String(input.nombre_completo ?? "").trim() || ctx.patient.name || "Paciente";
+        const prev = (await ctx.store.listWaitlist(["esperando", "ofrecido"])).find((w) => w.patientId === ctx.patient.id);
+        if (prev) await ctx.store.updateWaitlist(prev.id, { status: "cancelado" });
+        const franja = (["manana", "tarde", "cualquiera"].includes(String(input.franja)) ? input.franja : "cualquiera") as "manana" | "tarde" | "cualquiera";
+        const e = await ctx.store.addWaitlist({ patientId: ctx.patient.id, patientName: nombre, treatment: String(input.tratamiento ?? "Consulta"), fromDate: desde, toDate: hasta, franja });
+        if (!ctx.patient.name && nombre !== "Paciente") ctx.patient = await ctx.store.updatePatient(ctx.patient.id, { name: nombre });
+        return { ok: true, lista_espera_id: e.id, desde, hasta, franja, mensaje: "Si se libera un horario en ese rango, se le ofrece por este chat." };
       }
 
       case "buscar_en_documentos": {

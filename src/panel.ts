@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { DateTime } from "luxon";
-import { ROOT } from "./config.js";
+import { config, ROOT } from "./config.js";
 import { isSecure, type AuthBackend, type Membership, type PanelUser } from "./auth.js";
 import { withClinic } from "./clinics/context.js";
 import type { ClinicRuntime } from "./clinics/registry.js";
@@ -350,10 +350,52 @@ export function createPanelRouter(opts: PanelOptions): Router {
       // Se libera el horario en el calendario igual que cuando cancela el paciente.
       if (a.calendarEventId) await req.runtime!.calendar.deleteEvent(a.calendarEventId);
       await store.updateAppointment(a.id, { status: "cancelada", cancelledAt: clock().toISOString() });
+      // El horario liberado se ofrece a la lista de espera.
+      const offered = await req.runtime!.waitlist.onSlotFreed(localKey(toLocal(a.start))).catch(() => null);
+      return res.json({ ok: true, offeredTo: offered?.patientName ?? null });
     } else {
       await store.updateAppointment(a.id, { status: status as "asistio" | "ausente" | "confirmada" });
     }
     res.json({ ok: true });
+  });
+
+  // ===================================================================
+  // Lista de espera y reactivación de pacientes
+  // ===================================================================
+
+  r.get("/waitlist", async (req: PanelRequest, res) => {
+    const list = await req.store!.listWaitlist(["esperando", "ofrecido", "aceptado"]);
+    res.json({ entries: list.reverse().slice(0, 100), offerMinutes: config.waitlist.offerMinutes });
+  });
+
+  r.post("/waitlist/:id/cancel", async (req: PanelRequest, res) => {
+    try {
+      await req.store!.updateWaitlist(String(req.params.id), { status: "cancelado" });
+      res.json({ ok: true });
+    } catch {
+      res.status(404).json({ error: "No existe" });
+    }
+  });
+
+  r.get("/reactivation", async (req: PanelRequest, res) => {
+    const list = await req.runtime!.reminders.reactivationCandidates();
+    res.json({
+      months: config.reactivation.months,
+      candidates: list.map((c) => ({
+        patientId: c.patient.id, name: c.patient.name, phone: mask(c.patient.phone), channel: c.patient.channel,
+        lastVisit: toLocal(c.lastVisit).toISODate(), lastTreatment: c.lastTreatment, monthsAgo: c.monthsAgo, lastInvitation: c.lastInvitation,
+      })),
+    });
+  });
+
+  r.post("/reactivation/:patientId", async (req: PanelRequest, res) => {
+    try {
+      const ok = await req.runtime!.reminders.reactivateNow(String(req.params.patientId));
+      if (!ok) return res.status(404).json({ error: "Ese paciente no está para reactivar" });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(502).json({ error: `No se pudo enviar: ${(err as Error).message}` });
+    }
   });
 
   // ===================================================================

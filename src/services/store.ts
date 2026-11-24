@@ -41,7 +41,13 @@ export interface ChatMessage {
   text: string;
   at: string;
   /** Mensajes que envía el bot por iniciativa propia (recordatorios, seguimiento). */
-  meta?: { kind: "reminder24" | "reminder2" | "followup"; appointmentId?: string };
+  meta?: {
+    kind: "reminder24" | "reminder2" | "followup" | "waitlist_offer" | "reactivation";
+    appointmentId?: string;
+    /** Lista de espera: entrada y horario ofrecido (hora local YYYY-MM-DDTHH:mm). */
+    waitlistId?: string;
+    slot?: string;
+  };
 }
 
 export interface Conversation {
@@ -83,6 +89,27 @@ export interface TurnMetric {
   modelCalls: number;
   tools: string[];
   at: string;
+}
+
+export type WaitlistStatus = "esperando" | "ofrecido" | "aceptado" | "cancelado";
+
+/** Paciente que espera un hueco: si se libera un horario dentro de su rango, se le ofrece. */
+export interface WaitlistEntry {
+  id: string;
+  patientId: string;
+  patientName: string;
+  treatment: string;
+  /** Rango de días aceptable (YYYY-MM-DD, hora local de la clínica). */
+  fromDate: string;
+  toDate: string;
+  franja: "manana" | "tarde" | "cualquiera";
+  status: WaitlistStatus;
+  /** Horario ofrecido ahora (YYYY-MM-DDTHH:mm) y cuándo se ofreció. */
+  offeredSlot: string | null;
+  offeredAt: string | null;
+  /** Horarios que ya rechazó o dejó vencer: no se le vuelven a ofrecer. */
+  declinedSlots: string[];
+  createdAt: string;
 }
 
 /** Documento subido por el consultorio (PDF/Word), ya convertido a texto y partido en fragmentos. */
@@ -147,6 +174,11 @@ export interface Store {
   logMetric(m: TurnMetric): Promise<void>;
   listMetrics(): Promise<TurnMetric[]>;
 
+  // Lista de espera
+  addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots">): Promise<WaitlistEntry>;
+  listWaitlist(status?: WaitlistStatus[]): Promise<WaitlistEntry[]>;
+  updateWaitlist(id: string, patch: Partial<Omit<WaitlistEntry, "id" | "createdAt">>): Promise<WaitlistEntry>;
+
   // Zona de aprendizaje
   updateKnowledge(k: ClinicKnowledge): Promise<void>;
   listDocuments(): Promise<ClinicDocument[]>;
@@ -171,6 +203,7 @@ interface MemoryData {
   documents: Array<Owned<ClinicDocument>>;
   chunks: Array<{ documentId: string; clinicId: string; content: string }>;
   knowledge: Map<string, ClinicKnowledge>;
+  waitlist: Array<Owned<WaitlistEntry>>;
 }
 
 export const DEFAULT_CLINIC_ID = "sonrisa-clara";
@@ -186,7 +219,7 @@ export class InMemoryStore implements Store {
 
   /** El reloj es inyectable para que las pruebas con tiempo simulado fechen bien los registros. */
   constructor(private clock: () => Date = () => new Date(), readonly clinicId = DEFAULT_CLINIC_ID, data?: MemoryData) {
-    this.data = data ?? { patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [], documents: [], chunks: [], knowledge: new Map() };
+    this.data = data ?? { patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [], documents: [], chunks: [], knowledge: new Map(), waitlist: [] };
   }
   forClinic(clinicId: string): Store {
     return new InMemoryStore(this.clock, clinicId, this.data);
@@ -291,6 +324,22 @@ export class InMemoryStore implements Store {
   }
   async listMetrics() {
     return this.data.metrics.filter((m) => this.mine(m)).map((m) => strip(m));
+  }
+
+  async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots">) {
+    const x: Owned<WaitlistEntry> = { ...e, id: id("esp"), status: "esperando", offeredSlot: null, offeredAt: null, declinedSlots: [], createdAt: this.now(), clinicId: this.clinicId };
+    this.data.waitlist.push(x);
+    return strip(x);
+  }
+  async listWaitlist(status?: WaitlistStatus[]) {
+    return this.data.waitlist.filter((w) => this.mine(w) && (!status || status.includes(w.status)))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((w) => structuredClone(strip(w)));
+  }
+  async updateWaitlist(wid: string, patch: Partial<Omit<WaitlistEntry, "id" | "createdAt">>) {
+    const w = this.data.waitlist.find((x) => x.id === wid);
+    if (!this.mine(w)) throw new Error("entrada de lista de espera no encontrada");
+    Object.assign(w, structuredClone(patch));
+    return structuredClone(strip(w));
   }
 
   async updateKnowledge(k: ClinicKnowledge) {

@@ -83,6 +83,8 @@ export const config = {
     /** Plantillas aprobadas por Meta: se usan solo si la ventana de 24 h está cerrada */
     templateReminder: env("WHATSAPP_TEMPLATE_REMINDER", "recordatorio_turno"),
     templateFollowup: env("WHATSAPP_TEMPLATE_FOLLOWUP", "seguimiento_promo"),
+    templateWaitlist: env("WHATSAPP_TEMPLATE_WAITLIST", "turno_liberado"),
+    templateReactivation: env("WHATSAPP_TEMPLATE_REACTIVATION", "reactivacion_paciente"),
     templateLang: env("WHATSAPP_TEMPLATE_LANG", "es"),
   },
 
@@ -92,6 +94,19 @@ export const config = {
     intervalSec: num("REMINDERS_INTERVAL_SEC", 60),
     /** Horas sin respuesta tras las que se escribe a un lead que no agendó (menos de 24 para seguir dentro de la ventana de WhatsApp) */
     followupAfterHours: num("FOLLOWUP_AFTER_HOURS", 20),
+  },
+
+  waitlist: {
+    /** Minutos que se le guarda el horario liberado a quien se lo ofrecemos, antes de pasar al siguiente. */
+    offerMinutes: num("WAITLIST_OFFER_MINUTES", 30),
+  },
+
+  reactivation: {
+    enabled: env("REACTIVATION_ENABLED", "true") !== "false",
+    /** Meses desde la última visita para escribirle a un paciente que no volvió. */
+    months: num("REACTIVATION_MONTHS", 6),
+    /** Máximo de mensajes de reactivación por revisión (evita envíos masivos). */
+    maxPerSweep: num("REACTIVATION_MAX_PER_SWEEP", 5),
   },
 
   panel: {

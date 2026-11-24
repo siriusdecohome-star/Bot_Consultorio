@@ -12,7 +12,9 @@ import { emptyUsage, type LlmProvider, type ToolCallLog, type TurnInput, type Tu
  */
 
 interface Memory {
-  step: "idle" | "elige_horario" | "pide_nombre" | "confirma" | "elige_cita_cancelar";
+  step: "idle" | "elige_horario" | "pide_nombre" | "confirma" | "elige_cita_cancelar" | "pide_nombre_espera";
+  /** Último rango buscado: se usa para anotar en la lista de espera. */
+  lastRange?: { from: string; to: string; franja: string };
   slots: Array<{ inicio: string; cuando: string }>;
   chosen?: string;
   treatment?: string;
@@ -102,9 +104,10 @@ export class MockProvider implements LlmProvider {
         fecha_desde: from.toISODate(), fecha_hasta: to.toISODate(), franja: fr,
       });
       mem.slots = r.horarios.slice(0, 4);
+      mem.lastRange = { from: from.toISODate()!, to: to.toISODate()!, franja: fr };
       if (!mem.slots.length) {
         mem.step = "idle";
-        return "No encuentro horarios libres en ese rango. ¿Le busco otro día?";
+        return "No encuentro horarios libres en ese rango. ¿Le busco otro día? Si prefiere, lo anoto en la *lista de espera* y le aviso apenas se libere un turno.";
       }
       mem.step = "elige_horario";
       return `${intro.replace("{dia}", dayHeader(mem.slots))}\n\n${slotList(mem.slots)}\n\n¿Cuál le queda mejor? Respóndame con el número.`;
@@ -160,6 +163,27 @@ export class MockProvider implements LlmProvider {
           return offer(pref?.[0] ?? now, pref?.[1] ?? now.plus({ days: 4 }), franja(t),
             `¡Claro! Su turno actual es el *${r.citas[0].cuando}*. {dia} tengo libres:`);
         }
+      }
+
+      // 1b) Lista de espera: «anóteme», «avíseme si se libera»…
+      const waitlist = async (name: string) => {
+        const range = parseDay(t, now);
+        const r = mem.lastRange ?? { from: now.toISODate()!, to: now.plus({ days: 7 }).toISODate()!, franja: "cualquiera" };
+        const x = await call("anotar_lista_espera", {
+          nombre_completo: name, tratamiento: mem.treatment ?? "Consulta y diagnóstico",
+          fecha_desde: range?.[0].toISODate() ?? r.from, fecha_hasta: range?.[1].toISODate() ?? r.to, franja: has(t, "manana", "tarde") ? franja(t) : r.franja,
+        });
+        mem.step = "idle";
+        const d = (iso: string) => DateTime.fromISO(iso, { zone: TZ() }).setLocale("es").toFormat("cccc dd/MM");
+        return `¡Listo! 📝 Lo anoté en la lista de espera del *${d(x.desde)}* al *${d(x.hasta)}*${x.franja === "cualquiera" ? "" : ` (por la ${x.franja === "manana" ? "mañana" : "tarde"})`}. Si se libera un turno, se lo ofrezco por aquí al instante.`;
+      };
+      if (mem.step === "pide_nombre_espera") {
+        mem.name = input.userText.replace(/^(soy|me llamo|mi nombre es)\s+/i, "").trim();
+        return waitlist(mem.name);
+      }
+      if (has(t, "lista de espera", "anot", "avis", "si se libera", "esperar")) {
+        if (!mem.name) { mem.step = "pide_nombre_espera"; return "¡Claro! Para anotarlo en la lista de espera, ¿me indica su nombre y apellido?"; }
+        return waitlist(mem.name);
       }
 
       // 2) Flujo de reserva

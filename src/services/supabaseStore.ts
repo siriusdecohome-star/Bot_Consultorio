@@ -2,7 +2,7 @@
 import {
   DEFAULT_CLINIC_ID, SlotTakenError,
   type Appointment, type AppointmentFilter, type Channel, type Conversation, type Handoff, type Patient,
-  type Store, type TurnMetric, type ClinicDocument, type DocumentHit,
+  type Store, type TurnMetric, type ClinicDocument, type DocumentHit, type WaitlistEntry, type WaitlistStatus,
 } from "./store.js";
 import type { ClinicKnowledge } from "../clinics/types.js";
 import { tsQuery } from "./textSearch.js";
@@ -52,6 +52,23 @@ const toHandoff = (r: any): Handoff => ({
   id: r.id, conversationId: r.conversation_id, patientId: r.patient_id, reason: r.reason,
   summary: r.summary, status: r.status, createdAt: r.created_at,
 });
+
+const toWait = (r: any): WaitlistEntry => ({
+  id: r.id, patientId: r.patient_id, patientName: r.patient_name, treatment: r.treatment, fromDate: r.from_date, toDate: r.to_date,
+  franja: r.franja, status: r.status, offeredSlot: r.offered_slot, offeredAt: r.offered_at, declinedSlots: r.declined_slots ?? [], createdAt: r.created_at,
+});
+const waitPatch = (p: Partial<WaitlistEntry>) => {
+  const m: Record<string, unknown> = {};
+  if (p.status !== undefined) m.status = p.status;
+  if (p.offeredSlot !== undefined) m.offered_slot = p.offeredSlot;
+  if (p.offeredAt !== undefined) m.offered_at = p.offeredAt;
+  if (p.declinedSlots !== undefined) m.declined_slots = p.declinedSlots;
+  if (p.fromDate !== undefined) m.from_date = p.fromDate;
+  if (p.toDate !== undefined) m.to_date = p.toDate;
+  if (p.franja !== undefined) m.franja = p.franja;
+  if (p.treatment !== undefined) m.treatment = p.treatment;
+  return m;
+};
 
 const noSession = { auth: { persistSession: false, autoRefreshToken: false } } as const;
 
@@ -189,6 +206,21 @@ export class SupabaseStore implements Store {
       inputTokens: r.input_tokens, outputTokens: r.output_tokens, cacheReadTokens: r.cache_read_tokens,
       costUsd: Number(r.cost_usd), modelCalls: r.model_calls, tools: r.tools, at: r.at,
     }));
+  }
+
+  async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots">) {
+    return toWait(check(await this.from("waitlist").insert({
+      id: newId("esp"), clinic_id: this.clinicId, patient_id: e.patientId, patient_name: e.patientName, treatment: e.treatment,
+      from_date: e.fromDate, to_date: e.toDate, franja: e.franja,
+    }).select().single()));
+  }
+  async listWaitlist(status?: WaitlistStatus[]) {
+    let q = this.from("waitlist").select("*").eq("clinic_id", this.clinicId).order("created_at");
+    if (status) q = q.in("status", status);
+    return (check(await q) ?? []).map(toWait);
+  }
+  async updateWaitlist(id: string, patch: Partial<Omit<WaitlistEntry, "id" | "createdAt">>) {
+    return toWait(check(await this.from("waitlist").update(waitPatch(patch)).eq("clinic_id", this.clinicId).eq("id", id).select().single()));
   }
 
   async updateKnowledge(k: ClinicKnowledge) {

@@ -4,6 +4,7 @@
 
 drop table if exists document_chunks cascade;
 drop table if exists documents     cascade;
+drop table if exists waitlist      cascade;
 drop table if exists test_results  cascade;
 drop table if exists turn_metrics  cascade;
 drop table if exists handoffs      cascade;

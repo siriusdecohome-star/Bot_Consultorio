@@ -106,7 +106,11 @@
         </div>
       </div>
       <div class="week" id="week"></div>
-      <p class="hint">Los turnos los reserva el asistente; desde acá se marca la asistencia o se cancela (el horario se libera en el calendario).</p>
+      <p class="hint">Los turnos los reserva el asistente; desde acá se marca la asistencia o se cancela (el horario se libera en el calendario y se ofrece a la lista de espera).</p>
+      <section class="card">
+        <div class="card-head"><h2>Lista de espera</h2><span class="hint" id="wl-hint"></span></div>
+        <div class="table-wrap"><table class="tbl" id="waitlist"></table></div>
+      </section>
     </section>
 
     <!-- ================= Pacientes ================= -->
@@ -123,6 +127,11 @@
         </div>
       </div>
       <section class="card"><div class="table-wrap"><table class="tbl" id="patients"></table></div></section>
+      <section class="card">
+        <div class="card-head"><h2>Pacientes para reactivar</h2><span class="hint" id="re-hint"></span></div>
+        <p class="hint">El asistente les escribe solo (una vez cada 90 días) para ofrecerles un control. También puede enviarlo ahora.</p>
+        <div class="table-wrap"><table class="tbl" id="reactivation"></table></div>
+      </section>
     </section>
 
     <!-- ================= Estadísticas ================= -->
@@ -233,6 +242,11 @@
             <li><b>Pausar el bot:</b> el asistente no responde nada en esa conversación hasta que lo reanude.</li>
             <li><b>Devolver al bot:</b> cierra la derivación y el asistente vuelve a atender.</li>
           </ul>
+        </section>
+        <section class="card">
+          <h3>📝 Lista de espera y reactivación</h3>
+          <p>Si no hay horarios que le sirvan, el asistente anota al paciente en la <b>lista de espera</b> con su rango de días y franja. Cuando alguien cancela, el horario se ofrece por WhatsApp a la primera persona que coincide, con botones <i>Lo tomo · No, gracias</i>. Si no responde a tiempo, pasa a la siguiente.</p>
+          <p>A quien no viene hace varios meses, el asistente lo invita a un control (<b>reactivación</b>), como máximo una vez cada 90 días.</p>
         </section>
         <section class="card">
           <h3>⏰ Recordatorios y seguimiento</h3>

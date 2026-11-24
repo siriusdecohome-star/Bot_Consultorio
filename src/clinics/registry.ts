@@ -1,5 +1,6 @@
 import { BotEngine } from "../bot/engine.js";
 import { ReminderService } from "../bot/reminders.js";
+import { WaitlistService } from "../bot/waitlist.js";
 import type { WhatsAppSender } from "../channels/whatsappClient.js";
 import { demoClinics } from "../data/clinics/index.js";
 import type { LlmProvider } from "../llm/types.js";
@@ -57,6 +58,7 @@ export interface ClinicRuntime {
   calendar: CalendarService;
   bot: BotEngine;
   reminders: ReminderService;
+  waitlist: WaitlistService;
   notifier: Notifier;
   /** Cliente de WhatsApp de su número, si tiene uno. */
   whatsapp: WhatsAppSender | null;
@@ -82,9 +84,11 @@ export function buildRuntimes(o: RuntimeOptions): Map<string, ClinicRuntime> {
     const calendar = new ClinicCalendar(o.services.calendar, profile);
     const whatsapp = profile.whatsappPhoneNumberId && o.whatsappFor ? o.whatsappFor(profile.whatsappPhoneNumberId) : null;
     const notifier = new ChannelNotifier({ whatsapp, web: o.outbox ?? null, webPrefix: `${profile.id}|` });
+    const bot = new BotEngine(o.provider, store, calendar, o.clock, profile);
+    const waitlist = new WaitlistService(store, notifier, calendar, o.clock, profile);
+    bot.waitlist = waitlist;
     map.set(profile.id, {
-      profile, store, calendar, notifier, whatsapp,
-      bot: new BotEngine(o.provider, store, calendar, o.clock, profile),
+      profile, store, calendar, notifier, whatsapp, bot, waitlist,
       reminders: new ReminderService(store, notifier, o.clock, profile),
     });
   }

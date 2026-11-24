@@ -144,9 +144,10 @@ if (config.reminders.enabled) {
     for (const rt of runtimes.values()) {
       try {
         const r = await rt.reminders.sweep();
-        const n = r.reminder24 + r.reminder2 + r.followups;
+        const expired = await rt.waitlist.sweep();
+        const n = r.reminder24 + r.reminder2 + r.followups + r.reactivations + expired;
         if (n || r.errors.length) {
-          console.log(`[recordatorios · ${rt.profile.id}] 24 h: ${r.reminder24} · 2 h: ${r.reminder2} · seguimientos: ${r.followups}${r.errors.length ? ` · errores: ${r.errors.join("; ")}` : ""}`);
+          console.log(`[recordatorios · ${rt.profile.id}] 24 h: ${r.reminder24} · 2 h: ${r.reminder2} · seguimientos: ${r.followups} · reactivaciones: ${r.reactivations} · ofertas vencidas: ${expired}${r.errors.length ? ` · errores: ${r.errors.join("; ")}` : ""}`);
         }
       } catch (err) {
         console.error(`[recordatorios · ${rt.profile.id}]`, (err as Error).message);

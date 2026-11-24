@@ -7,7 +7,9 @@ import type { CalendarService } from "../services/calendar.js";
 import type { Channel, ChatMessage, Store, TurnMetric } from "../services/store.js";
 import { human, toLocal, type Clock, systemClock } from "../services/time.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
-import { makeExecutor, toolDefs } from "./tools.js";
+import { makeExecutor, toolDefs, type ToolContext } from "./tools.js";
+import type { WaitlistService } from "./waitlist.js";
+import type { Patient } from "../services/store.js";
 import { withinOpeningHours } from "../services/calendar.js";
 
 export interface IncomingMessage {
@@ -35,6 +37,9 @@ export interface BotReply {
  * solo traducen su formato a IncomingMessage y envían los mensajes devueltos.
  */
 export class BotEngine {
+  /** Lista de espera de la clínica: recibe los horarios liberados y las respuestas a sus ofertas. */
+  waitlist?: WaitlistService;
+
   constructor(
     private provider: LlmProvider,
     private store: Store,
@@ -62,8 +67,14 @@ export class BotEngine {
    * Respuestas a botones que no necesitan IA: confirmar asistencia y "más adelante".
    * Son instantáneas y no tienen costo. Cancelar o cambiar pasan al modelo, que usa las herramientas.
    */
-  private async quickReply(pending: ChatMessage["meta"], text: string, patientId: string): Promise<string | null> {
+  private async quickReply(pending: ChatMessage["meta"], text: string, ctx: ToolContext): Promise<string | null> {
+    const patientId = ctx.patient.id;
     const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N} ]/gu, "").trim();
+    if (pending?.kind === "waitlist_offer" && pending.waitlistId && pending.slot) {
+      const accept = /^(lo tomo|si lo tomo|si|si por favor|quiero|lo quiero|dale|ok|reservalo|si reservalo|perfecto)$/.test(t);
+      const decline = /^(no gracias|no|ahora no|paso|no puedo)$/.test(t);
+      if (accept || decline) return this.answerWaitlistOffer(pending.waitlistId, pending.slot, accept, ctx);
+    }
     if (pending?.appointmentId && /^(confirmo|confirmar|si confirmo|si|confirmado|si voy|voy|ahi estare)$/.test(t)) {
       const a = await this.store.getAppointment(pending.appointmentId);
       if (!a || a.patientId !== patientId || !["confirmada", "pendiente"].includes(a.status)) return null;
@@ -71,10 +82,33 @@ export class BotEngine {
       const name = a.patientName.replace(/\s*\(demo\)/i, "").split(/\s+/)[0];
       return `¡Gracias, ${name}! ✅ Su asistencia quedó confirmada para el *${human(toLocal(a.start))}*. ¡Lo esperamos!`;
     }
-    if (pending?.kind === "followup" && /^(mas adelante|despues|ahora no|no gracias|no)$/.test(t)) {
+    if ((pending?.kind === "followup" || pending?.kind === "reactivation") && /^(mas adelante|despues|ahora no|no gracias|no)$/.test(t)) {
       return "¡Perfecto! Cuando quiera, escríbame y le busco un turno. 😊";
     }
     return null;
+  }
+
+  /** «Lo tomo» reserva el horario ofrecido (si sigue libre); «No, gracias» lo pasa a la siguiente persona. */
+  private async answerWaitlistOffer(entryId: string, slot: string, accept: boolean, ctx: ToolContext): Promise<string> {
+    const entry = (await this.store.listWaitlist()).find((e) => e.id === entryId);
+    if (!entry || entry.patientId !== ctx.patient.id) return "No encuentro esa oferta. ¿Quiere que le busque otro horario?";
+    if (entry.status !== "ofrecido" || entry.offeredSlot !== slot) {
+      return entry.status === "aceptado"
+        ? "Ese turno ya quedó reservado a su nombre. 😊"
+        : "Disculpe, esa oferta ya venció y el horario se ofreció a otra persona. Sigue en la lista de espera: si se libera otro, le aviso. ¿Prefiere que le busque otro horario ahora?";
+    }
+    if (!accept) {
+      await this.waitlist?.decline(entryId, slot);
+      return "Entendido. Sigue en la lista de espera: si se libera otro horario que le sirva, le aviso por aquí. 😊";
+    }
+    const r = (await makeExecutor(ctx)("crear_cita", { nombre_completo: ctx.patient.name ?? entry.patientName, tratamiento: entry.treatment, inicio: slot })) as any;
+    if (!r.ok) {
+      await this.waitlist?.decline(entryId, slot);
+      return "¡Uy! Ese horario se ocupó hace un momento. Sigue en la lista de espera y le aviso apenas se libere otro. ¿Quiere que le busque otras opciones ahora?";
+    }
+    await this.store.updateWaitlist(entryId, { status: "aceptado" });
+    const name = (ctx.patient.name ?? entry.patientName).replace(/\s*\(demo\)/i, "").split(/\s+/)[0];
+    return `¡Listo, ${name}! ✅ Le reservé el turno:\n\n📅 *${r.cita.cuando}*\n🦷 ${r.cita.tratamiento}\n📍 ${kb().address.replace(" (dirección ficticia)", "")}\n\nLe enviaré un recordatorio el día anterior.`;
   }
 
   async handle(msg: IncomingMessage): Promise<BotReply> {
@@ -113,7 +147,14 @@ export class BotEngine {
     // Respuesta a un aviso que mandó el bot (recordatorio o seguimiento).
     const lastBot = [...conv.messages].slice(0, -1).reverse().find((m) => m.role === "bot");
     const pending = lastBot?.meta;
-    const quick = await this.quickReply(pending, msg.text, patient.id);
+    const ctx: ToolContext = {
+      store: this.store, calendar: this.calendar, clock: this.clock, patient, conversation: conv,
+      // Un turno cancelado o movido libera su horario: se ofrece a la lista de espera.
+      onSlotFreed: (slot) => {
+        void this.waitlist?.onSlotFreed(slot).catch((err) => console.error("[lista de espera]", (err as Error).message));
+      },
+    };
+    const quick = await this.quickReply(pending, msg.text, ctx);
     if (quick) {
       out.push(quick);
       for (const t of out) conv.messages.push({ role: "bot", text: t, at });
@@ -126,6 +167,10 @@ export class BotEngine {
       if (a) reminderNote = `El último mensaje del bot fue un RECORDATORIO del turno id ${a.id} (${human(toLocal(a.start))}, ${a.treatment}). Si el paciente quiere cancelar o cambiar el horario, se refiere a ese turno.`;
     } else if (pending?.kind === "followup") {
       reminderNote = "El último mensaje del bot fue un SEGUIMIENTO de la promoción: el paciente no había agendado. Si acepta, ofrézcale horarios concretos.";
+    } else if (pending?.kind === "reactivation") {
+      reminderNote = "El último mensaje del bot fue una invitación a un CONTROL: el paciente no viene hace meses. Si acepta, ofrézcale horarios concretos para una consulta de control.";
+    } else if (pending?.kind === "waitlist_offer" && pending.slot) {
+      reminderNote = `El último mensaje del bot ofreció el horario liberado ${pending.slot} de la LISTA DE ESPERA. Si el paciente lo quiere, resérvelo con crear_cita.`;
     }
 
     // Si cambió el proveedor (p. ej. de mock a Claude), el historial nativo no es compatible: se reinicia.
@@ -134,7 +179,6 @@ export class BotEngine {
       conv.llmProvider = this.provider.name;
     }
 
-    const ctx = { store: this.store, calendar: this.calendar, clock: this.clock, patient, conversation: conv };
     const execute = makeExecutor(ctx);
     const now = toLocal(this.clock());
     const open = withinOpeningHours(now.set({ second: 0, millisecond: 0 }));

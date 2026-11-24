@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { config } from "../config.js";
 import { kb } from "../data/knowledge.js";
 import type { Notifier, OutboundMessage } from "../services/notifier.js";
-import type { Appointment, Conversation, Store } from "../services/store.js";
+import type { Appointment, Conversation, Patient, Store } from "../services/store.js";
 import { toLocal, type Clock } from "../services/time.js";
 import { withClinic } from "../clinics/context.js";
 import type { ClinicProfile } from "../clinics/types.js";
@@ -13,6 +13,7 @@ export interface SweepResult {
   reminder24: number;
   reminder2: number;
   followups: number;
+  reactivations: number;
   skipped: number;
   errors: string[];
 }
@@ -53,6 +54,23 @@ export function followupMessage(name: string | null): OutboundMessage {
   };
 }
 
+export function reactivationMessage(name: string | null, months: number, lastTreatment: string | null): OutboundMessage {
+  const n = name ? firstName(name) : "";
+  return {
+    text: `Hola${n ? `, ${n}` : ""} 👋 Le escribimos de ${kb().name}. Ya pasaron ${months} meses desde su última visita${lastTreatment ? ` (${lastTreatment})` : ""} y le recomendamos un control cada 6 meses.\n\n¿Quiere que le busque un turno?`,
+    buttons: ["📅 Sí, buscar turno", "Más adelante"],
+    template: { name: config.whatsapp.templateReactivation, params: [n || "¡hola"] },
+  };
+}
+
+export interface ReactivationCandidate {
+  patient: Patient;
+  lastVisit: string; // ISO del último turno al que asistió
+  lastTreatment: string;
+  monthsAgo: number;
+  lastInvitation: string | null;
+}
+
 /**
  * Revisa la agenda y envía recordatorios y seguimientos. Es idempotente:
  * cada aviso queda marcado y no se repite aunque el proceso se reinicie.
@@ -67,7 +85,7 @@ export class ReminderService {
   }
 
   private async sweepInClinic(): Promise<SweepResult> {
-    const res: SweepResult = { reminder24: 0, reminder2: 0, followups: 0, skipped: 0, errors: [] };
+    const res: SweepResult = { reminder24: 0, reminder2: 0, followups: 0, reactivations: 0, skipped: 0, errors: [] };
     const now = toLocal(this.clock());
     const upcoming = await this.store.listAppointments({
       from: now.toUTC().toISO()!,
@@ -109,6 +127,7 @@ export class ReminderService {
     }
 
     res.followups = await this.followups(now, res.errors);
+    if (config.reactivation.enabled) res.reactivations = await this.reactivations(res.errors);
     return res;
   }
 
@@ -119,6 +138,71 @@ export class ReminderService {
       if (!a || !["confirmada", "pendiente"].includes(a.status)) return null;
       return this.send(a, kind, toLocal(this.clock()));
     });
+  }
+
+  /**
+   * Pacientes que no vuelven: su última visita fue hace `months` meses o más, no tienen
+   * turnos próximos y no se les escribió por esto en los últimos 90 días.
+   */
+  reactivationCandidates(months = config.reactivation.months): Promise<ReactivationCandidate[]> {
+    return withClinic(this.clinic, async () => {
+      const now = toLocal(this.clock());
+      const nowIso = now.toUTC().toISO()!;
+      const [patients, appts, convs] = await Promise.all([this.store.listPatients(), this.store.listAppointments(), this.store.listConversations()]);
+      const out: ReactivationCandidate[] = [];
+      for (const p of patients) {
+        if (p.channel === "test") continue;
+        const mine = appts.filter((a) => a.patientId === p.id);
+        if (mine.some((a) => a.start >= nowIso && ["confirmada", "pendiente"].includes(a.status))) continue;
+        const visits = mine.filter((a) => a.start < nowIso && (a.status === "asistio" || a.status === "confirmada"));
+        const last = visits.at(-1);
+        if (!last) continue;
+        const monthsAgo = Math.floor(now.diff(toLocal(last.start), "months").months);
+        if (monthsAgo < months) continue;
+        const conv = convs.find((c) => c.patientId === p.id);
+        const lastInvitation = conv ? [...conv.messages].reverse().find((m) => m.meta?.kind === "reactivation")?.at ?? null : null;
+        out.push({ patient: p, lastVisit: last.start, lastTreatment: last.treatment, monthsAgo, lastInvitation });
+      }
+      return out.sort((a, b) => a.lastVisit.localeCompare(b.lastVisit));
+    });
+  }
+
+  /** Envía ya la invitación a volver a un paciente (botón del panel). */
+  reactivateNow(patientId: string): Promise<boolean> {
+    return withClinic(this.clinic, async () => {
+      const c = (await this.reactivationCandidates(0)).find((x) => x.patient.id === patientId);
+      if (!c) return false;
+      await this.sendReactivation(c);
+      return true;
+    });
+  }
+
+  private async reactivations(errors: string[]): Promise<number> {
+    const recent = this.clock().getTime() - 90 * 86_400_000;
+    let sent = 0;
+    for (const c of await this.reactivationCandidates()) {
+      if (sent >= config.reactivation.maxPerSweep) break;
+      if (c.patient.id.startsWith("demo_")) continue; // datos de ejemplo: sin teléfono real
+      if (c.lastInvitation && new Date(c.lastInvitation).getTime() > recent) continue;
+      if ((this.failedAt.get(c.patient.id) ?? 0) > Date.now() - 30 * 60_000) continue;
+      try {
+        await this.sendReactivation(c);
+        sent++;
+      } catch (err) {
+        this.failedAt.set(c.patient.id, Date.now());
+        errors.push(`reactivación ${c.patient.id}: ${(err as Error).message}`);
+      }
+    }
+    return sent;
+  }
+
+  private async sendReactivation(c: ReactivationCandidate) {
+    const msg = reactivationMessage(c.patient.name, c.monthsAgo, c.lastTreatment);
+    await this.notifier.send(c.patient.channel, c.patient.phone, msg);
+    const conv = await this.store.getOrCreateConversation(c.patient, c.patient.channel);
+    conv.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), meta: { kind: "reactivation" } });
+    conv.privacyShown = true;
+    await this.store.saveConversation(conv);
   }
 
   /** Envía ya el seguimiento de la promo a una conversación (para la demo). */

@@ -354,15 +354,36 @@ async function loadAgenda() {
     </div>`;
   }).join("");
   stamp();
+  loadWaitlist().catch(() => {});
 }
+const WL = { esperando: ["Esperando", "wait"], ofrecido: ["Oferta enviada", "info"], aceptado: ["Tomó el turno", "ok"] };
+const FR = { manana: "mañana", tarde: "tarde", cualquiera: "cualquier hora" };
+async function loadWaitlist() {
+  const d = await api("/waitlist");
+  $("#wl-hint").textContent = `la oferta dura ${d.offerMinutes} min y pasa a la siguiente persona`;
+  const fd = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("es", { day: "numeric", month: "numeric", timeZone: "UTC" });
+  $("#waitlist").innerHTML = d.entries.length ? `<tr><th>Paciente</th><th>Tratamiento</th><th>Días</th><th>Franja</th><th>Estado</th><th>Anotado</th><th></th></tr>` +
+    d.entries.map((e) => {
+      const [label, cls] = WL[e.status] ?? [e.status, "muted"];
+      const offered = e.status === "ofrecido" && e.offeredSlot ? ` · ${e.offeredSlot.slice(8, 10)}/${e.offeredSlot.slice(5, 7)} ${e.offeredSlot.slice(11)}` : "";
+      return `<tr><td>${esc(e.patientName)}</td><td>${esc(e.treatment)}</td><td>${fd(e.fromDate)} – ${fd(e.toDate)}</td><td>${FR[e.franja] ?? e.franja}</td>
+        <td><span class="pill ${cls}">${label}${esc(offered)}</span></td><td class="ch">${ago(e.createdAt)}</td>
+        <td>${e.status === "aceptado" ? "" : `<button class="btn ghost small" data-wl-cancel="${esc(e.id)}">Quitar</button>`}</td></tr>`;
+    }).join("") : `<tr><td class="empty">Nadie en lista de espera. El asistente anota a quien no encuentra un horario que le sirva.</td></tr>`;
+}
+$("#waitlist").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-wl-cancel]");
+  if (!b || !confirm("¿Quitar a esta persona de la lista de espera?")) return;
+  try { await post(`/waitlist/${encodeURIComponent(b.dataset.wlCancel)}/cancel`); loadWaitlist(); } catch (err) { toast(err.message, true); }
+});
 $("#week").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-st]");
   if (!b) return;
   const id = b.closest("[data-appt]").dataset.appt;
   if (b.dataset.st === "cancelada" && !confirm("¿Cancelar este turno? El horario se libera en el calendario.")) return;
   try {
-    await post(`/appointment/${encodeURIComponent(id)}/status`, { status: b.dataset.st });
-    toast(b.dataset.st === "cancelada" ? "Turno cancelado: horario liberado" : "Asistencia registrada");
+    const r = await post(`/appointment/${encodeURIComponent(id)}/status`, { status: b.dataset.st });
+    toast(b.dataset.st === "cancelada" ? (r.offeredTo ? `Turno cancelado: se le ofreció a ${r.offeredTo} (lista de espera)` : "Turno cancelado: horario liberado") : "Asistencia registrada");
     loadAgenda();
   } catch (err) { toast(err.message, true); }
 });
@@ -390,7 +411,25 @@ async function loadPatients() {
       <td>${p.conversationId ? `<button class="btn ghost small" data-open="${esc(p.conversationId)}">Ver chat</button>` : ""}</td>
     </tr>`).join("")}` : `<tr><td class="empty">No hay pacientes para mostrar.</td></tr>`;
   stamp();
+  loadReactivation().catch(() => {});
 }
+async function loadReactivation() {
+  const d = await api("/reactivation");
+  $("#re-hint").textContent = `sin visitas hace ${d.months} meses o más y sin turno próximo`;
+  $("#reactivation").innerHTML = d.candidates.length ? `<tr><th>Paciente</th><th>Última visita</th><th>Hace</th><th>Canal</th><th>Última invitación</th><th></th></tr>` +
+    d.candidates.map((c) => `<tr><td>${esc(c.name ?? "Sin nombre")}<div class="ch">${esc(c.phone)}</div></td>
+      <td>${esc(c.lastVisit)} <span class="ch">· ${esc(c.lastTreatment)}</span></td><td>${c.monthsAgo} meses</td>
+      <td class="ch">${esc(CH[c.channel] ?? c.channel)}</td><td class="ch">${c.lastInvitation ? ago(c.lastInvitation) : "—"}</td>
+      <td><button class="btn ghost small" data-react="${esc(c.patientId)}">Invitar ahora</button></td></tr>`).join("")
+    : `<tr><td class="empty">No hay pacientes para reactivar.</td></tr>`;
+}
+$("#reactivation").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-react]");
+  if (!b) return;
+  b.disabled = true;
+  try { await post(`/reactivation/${encodeURIComponent(b.dataset.react)}`); toast("Invitación enviada al paciente"); loadReactivation(); }
+  catch (err) { toast(err.message, true); b.disabled = false; }
+});
 segment("#pat-filter", (f) => { state.patFilter = f; loadPatients(); });
 $("#pat-q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(loadPatients, 250); });
 

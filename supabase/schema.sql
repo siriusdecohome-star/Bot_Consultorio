@@ -138,6 +138,25 @@ alter table conversations add column if not exists bot_paused boolean not null d
 -- Fecha de cancelación, para las estadísticas.
 alter table appointments add column if not exists cancelled_at timestamptz;
 
+-- Lista de espera (punto 4): si se libera un horario dentro del rango y la franja,
+-- se le ofrece a la primera persona en espera.
+create table if not exists waitlist (
+  id              text primary key,
+  clinic_id       text not null references clinics(id) on delete cascade,
+  patient_id      text not null references patients(id) on delete cascade,
+  patient_name    text not null,
+  treatment       text not null,
+  from_date       date not null,
+  to_date         date not null,
+  franja          text not null check (franja in ('manana','tarde','cualquiera')),
+  status          text not null default 'esperando' check (status in ('esperando','ofrecido','aceptado','cancelado')),
+  offered_slot    text,           -- horario ofrecido ahora, hora local YYYY-MM-DDTHH:mm
+  offered_at      timestamptz,
+  declined_slots  text[] not null default '{}',
+  created_at      timestamptz not null default now()
+);
+create index if not exists waitlist_clinic_status_idx on waitlist (clinic_id, status, created_at);
+
 -- Documentos que sube el consultorio (PDF/Word/texto), ya convertidos a texto.
 create table if not exists documents (
   id          text primary key,
@@ -221,7 +240,7 @@ create policy members_read on clinic_members for select to authenticated
 do $$
 declare t text;
 begin
-  foreach t in array array['patients','conversations','appointments','handoffs'] loop
+  foreach t in array array['patients','conversations','appointments','handoffs','waitlist'] loop
     execute format('drop policy if exists %I on %I', t || '_team', t);
     execute format(
       'create policy %I on %I for all to authenticated
@@ -262,7 +281,7 @@ create policy test_results_read on test_results for select to authenticated usin
 grant usage on schema public to service_role, authenticated;
 grant select, insert, update, delete on all tables in schema public to service_role;
 grant usage, select on all sequences in schema public to service_role;
-grant select, insert, update, delete on patients, conversations, appointments, handoffs to authenticated;
+grant select, insert, update, delete on patients, conversations, appointments, handoffs, waitlist to authenticated;
 grant select, update on clinics to authenticated;
 grant select on clinic_members, turn_metrics, test_results to authenticated;
 grant select, insert, delete on documents, document_chunks to authenticated;

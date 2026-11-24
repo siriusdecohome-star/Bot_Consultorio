@@ -1,6 +1,9 @@
 /**
- * Crea en Meta las dos plantillas que usa el bot cuando la ventana de 24 h está cerrada.
- * Meta las revisa (suele tardar de minutos a horas). Uso: npm run wa:templates
+ * Crea en Meta las plantillas que usa el bot cuando la ventana de 24 h está cerrada:
+ * recordatorio, seguimiento de la promo, turno liberado (lista de espera) y reactivación.
+ * Meta las revisa (suele tardar de minutos a horas).
+ * Uso: npm run wa:templates                       → crea las que falten
+ *      npm run wa:templates -- --status            → estado de revisión de las cuatro
  * Requiere WHATSAPP_TOKEN y WHATSAPP_WABA_ID en el .env.
  *
  * Si la ventana de 24 h está abierta (el paciente escribió hace menos de 24 h),
@@ -8,7 +11,8 @@
  */
 import { config } from "../src/config.js";
 
-const { token, graphVersion, templateReminder, templateFollowup, templateLang } = config.whatsapp;
+const { token, graphVersion, templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateLang } = config.whatsapp;
+const ALL = [templateReminder, templateFollowup, templateWaitlist, templateReactivation];
 const waba = (process.env.WHATSAPP_WABA_ID ?? "").trim();
 if (!token || !waba) {
   console.log("Faltan WHATSAPP_TOKEN o WHATSAPP_WABA_ID en el .env");
@@ -17,7 +21,7 @@ if (!token || !waba) {
 
 // npm run wa:templates -- --status → solo muestra el estado de revisión
 if (process.argv.includes("--status")) {
-  for (const name of [templateReminder, templateFollowup]) {
+  for (const name of ALL) {
     const res = await fetch(`https://graph.facebook.com/${graphVersion}/${waba}/message_templates?name=${name}&fields=name,status,category,language,rejected_reason`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -69,9 +73,56 @@ const templates = [
       },
     ],
   },
+  {
+    name: templateWaitlist,
+    language: templateLang,
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola, {{1}}. Usted está en la lista de espera de Clínica Dental Sonrisa Clara y se liberó un turno: {{2}}. ¿Quiere que se lo reservemos?",
+        example: { body_text: [["Ana", "miércoles 25/11 a las 10:00"]] },
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Lo tomo" },
+          { type: "QUICK_REPLY", text: "No, gracias" },
+        ],
+      },
+    ],
+  },
+  {
+    name: templateReactivation,
+    language: templateLang,
+    category: "MARKETING",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola, {{1}}. Le escribimos de Clínica Dental Sonrisa Clara: ya pasaron varios meses desde su última visita y le recomendamos un control. ¿Quiere que le busquemos un turno?",
+        example: { body_text: [["Ana"]] },
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Sí, buscar turno" },
+          { type: "QUICK_REPLY", text: "Más adelante" },
+        ],
+      },
+    ],
+  },
 ];
 
+// Solo se crean las que todavía no existen en la cuenta.
+const existing = new Set<string>();
+for (const name of ALL) {
+  const r = await fetch(`https://graph.facebook.com/${graphVersion}/${waba}/message_templates?name=${name}&fields=name,language`, { headers: { Authorization: `Bearer ${token}` } });
+  const d = (await r.json()) as any;
+  if (d?.data?.some((x: any) => x.name === name && x.language === templateLang)) existing.add(name);
+}
+
 for (const t of templates) {
+  if (existing.has(t.name)) { console.log(`⚪ ${t.name}: ya existe, no se vuelve a crear`); continue; }
   const res = await fetch(`https://graph.facebook.com/${graphVersion}/${waba}/message_templates`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
