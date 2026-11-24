@@ -1,4 +1,5 @@
-import { privacyNotice } from "../data/knowledge.js";
+import { privacyLine, privacyNotice } from "../data/knowledge.js";
+import { config } from "../config.js";
 import type { LlmProvider, ToolCallLog } from "../llm/types.js";
 import type { CalendarService } from "../services/calendar.js";
 import type { Channel, Store, TurnMetric } from "../services/store.js";
@@ -14,6 +15,8 @@ export interface IncomingMessage {
   text: string;
   /** Origen del lead, p. ej. "promo-noviembre" (viene en el link de la promo). */
   source?: string | null;
+  /** Nombre del perfil de WhatsApp, para saludar (puede no ser el nombre real). */
+  profileName?: string | null;
 }
 
 export interface BotReply {
@@ -50,10 +53,11 @@ export class BotEngine {
     conv.messages.push({ role: "patient", text: msg.text, at });
 
     const out: string[] = [];
-    if (!conv.privacyShown) {
-      out.push(privacyNotice);
-      conv.privacyShown = true;
-    }
+    // Primer mensaje de la conversación: el asistente saluda, se presenta y menciona
+    // la privacidad en una línea (modo "inline"). "separate" = mensaje aparte; "off" = sin aviso.
+    const firstTurn = !conv.privacyShown;
+    if (firstTurn && config.privacyMode === "separate") out.push(privacyNotice);
+    conv.privacyShown = true;
 
     // Conversación tomada por una persona: el bot no interviene.
     if (conv.handedOff) {
@@ -81,6 +85,11 @@ export class BotEngine {
       `Consultorio ${open ? "ABIERTO" : "CERRADO"} en este momento.`,
       `Canal: ${msg.channel}. Teléfono del paciente: ${patient.phone}.`,
       `Nombre registrado: ${ctx.patient.name ?? "desconocido"}.`,
+      msg.profileName ? `Nombre de perfil de WhatsApp (no confirmado): ${msg.profileName}.` : "",
+      firstTurn
+        ? `PRIMER MENSAJE de la conversación: salude${msg.profileName ? " por el nombre de pila del perfil" : ""}, preséntese en una oración y responda lo que pidió.` +
+          (config.privacyMode === "inline" ? ` Cierre con esta línea exacta: «${privacyLine}»` : "")
+        : "",
       patient.source ? `Llegó por: ${patient.source}.` : "",
     ].filter(Boolean).join("\n");
 

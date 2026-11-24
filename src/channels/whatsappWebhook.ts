@@ -116,7 +116,9 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
       return;
     }
     log(`← ${mask(m.from)}: ${m.text.slice(0, 80)}`);
-    const reply = await opts.bot.handle({ channel: "whatsapp", userId: `+${m.from}`, text: m.text, source: m.source });
+    const reply = await opts.bot.handle({
+      channel: "whatsapp", userId: `+${m.from}`, text: m.text, source: m.source, profileName: m.name,
+    });
     for (const text of reply.messages) {
       await opts.sender.sendText(m.from, text);
     }

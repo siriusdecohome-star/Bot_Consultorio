@@ -70,6 +70,10 @@ export function knowledgeText(): string {
   ].join("\n\n");
 }
 
+/** Versión breve que va al final del primer saludo (modo "inline"). */
+export const privacyLine =
+  "_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._";
+
 export const privacyNotice =
   `🔒 Aviso de privacidad: soy el asistente virtual de ${clinic.name}. ` +
   "Uso sus datos (nombre y teléfono) solo para gestionar sus turnos y la conversación queda registrada de forma confidencial. " +

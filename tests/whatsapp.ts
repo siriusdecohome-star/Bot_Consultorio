@@ -75,13 +75,23 @@ try {
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(sent.length, 0);
   });
-  await check("Primer mensaje: aviso de privacidad + respuesta", async () => {
+  await check("Primer mensaje: saludo con nombre de perfil + respuesta + privacidad en una línea", async () => {
     const r = await post(payload("wamid.A1", "5491100000001", { type: "text", text: { body: "Hola, vi la promo #promo-noviembre" } }));
     assert.equal(r.status, 200);
-    await until(() => sent.length >= 2);
-    assert.match(sent[0]!.text, /Aviso de privacidad/);
-    assert.match(sent[1]!.text, /Promo Sonrisa Noviembre/);
+    await until(() => sent.length >= 1);
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(sent.length, 1, "debe ser un solo mensaje");
+    assert.match(sent[0]!.text, /^¡Hola, Paciente! 👋/);
+    assert.match(sent[0]!.text, /Promo Sonrisa Noviembre/);
+    assert.match(sent[0]!.text, /🔒 Sus datos se usan solo para gestionar sus turnos/);
     assert.equal(sent[0]!.to, "5491100000001");
+  });
+  await check("Segundo mensaje: no vuelve a presentarse", async () => {
+    const before = sent.length;
+    await post(payload("wamid.A1b", "5491100000001", { type: "text", text: { body: "¿Dónde quedan?" } }));
+    await until(() => sent.length > before);
+    assert.doesNotMatch(sent.at(-1)!.text, /Soy su asistente virtual|🔒/);
+    assert.match(sent.at(-1)!.text, /📍/);
   });
   await check("Aviso repetido por Meta (mismo id) no se procesa dos veces", async () => {
     const before = sent.length;
@@ -93,7 +103,7 @@ try {
     const before = sent.length;
     await post(payload("wamid.A2", "5491100000001", { type: "text", text: { body: "Quiero un turno para mañana a la tarde" } }));
     await until(() => sent.length > before);
-    assert.match(sent.at(-1)!.text, /1\. .*\n2\./);
+    assert.match(sent.at(-1)!.text, /1️⃣ .*\n2️⃣ /);
   });
   await check("Respuesta con botón interactivo se lee como texto", async () => {
     const before = sent.length;

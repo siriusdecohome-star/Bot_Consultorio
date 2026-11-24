@@ -34,9 +34,9 @@ const weekdays: Record<string, number> = { lunes: 1, martes: 2, miercoles: 3, ju
 /** Interpreta "mañana", "el jueves", "25/11", "la semana que viene". */
 function parseDay(t: string, now: DateTime): [DateTime, DateTime] | null {
   if (has(t, "pasado manana")) return [now.plus({ days: 2 }), now.plus({ days: 2 })];
-  if (/\bmanana\b/.test(t) && !/\bmanana (a la|por la) tarde\b|\bde manana\b|\bpor la manana\b|\ba la manana\b/.test(t))
+  // "a la mañana", "por la mañana", "de mañana" son franjas; cualquier otro "mañana" es el día siguiente.
+  if (/\bmanana\b/.test(t.replace(/\b(a la|por la|de la|de) manana\b/g, "")))
     return [now.plus({ days: 1 }), now.plus({ days: 1 })];
-  if (/manana (a la|por la) tarde/.test(t)) return [now.plus({ days: 1 }), now.plus({ days: 1 })];
   if (has(t, "hoy")) return [now, now];
   if (has(t, "semana que viene", "proxima semana")) {
     const mon = now.plus({ weeks: 1 }).startOf("week");
@@ -105,14 +105,14 @@ export class MockProvider implements LlmProvider {
         return "No encuentro horarios libres en ese rango. ¿Le busco otro día?";
       }
       mem.step = "elige_horario";
-      return `${intro}\n${mem.slots.map((s, i) => `${i + 1}. ${cap(s.cuando)}`).join("\n")}\n¿Cuál le queda mejor?`;
+      return `${intro.replace("{dia}", dayHeader(mem.slots))}\n\n${slotList(mem.slots)}\n\n¿Cuál le queda mejor? Respóndame con el número.`;
     };
 
     const reply = await (async (): Promise<string> => {
       // 1) Pedidos que cortan cualquier flujo
       if (has(t, "persona", "humano", "asesor", "recepcion", "operador", "hablar con alguien")) {
         await call("derivar_a_humano", { motivo: "pedido_del_paciente", resumen: `El paciente pidió hablar con una persona. Último mensaje: "${input.userText}"` });
-        return "Por supuesto. Ya le pasé su consulta a una persona del equipo, que le responderá en horario de atención. ¡Gracias por su paciencia!";
+        return "¡Por supuesto! 🙌 Ya le pasé su consulta a una persona del equipo, que le va a responder por este mismo chat en horario de atención.";
       }
       if (has(t, "dolor fuerte", "mucho dolor", "sangr", "hinchad", "golpe")) {
         await call("derivar_a_humano", { motivo: "urgencia", resumen: `Posible urgencia: "${input.userText}"` });
@@ -120,14 +120,14 @@ export class MockProvider implements LlmProvider {
       }
       if (has(t, "cancel", "no voy a poder", "no puedo ir")) {
         const r = await call("ver_citas_paciente", {});
-        if (!r.citas.length) return "No encuentro turnos activos a su nombre. ¿Desea agendar uno?";
+        if (!r.citas.length) return "No encuentro turnos activos a su nombre. ¿Quiere que le busque uno?";
         const c = r.citas[0];
         const x = await call("cancelar_cita", { cita_id: c.id, motivo: "aviso del paciente" });
-        if (!x.ok) return "No pude cancelar ese turno. Le comunico con una persona si lo desea.";
+        if (!x.ok) return "No pude cancelar ese turno. Si quiere, le comunico con una persona del equipo.";
         mem.treatment = c.tratamiento;
         const pref = parseDay(t, now);
         return offer(pref?.[0] ?? now, pref?.[1] ?? now.plus({ days: 4 }), "cualquiera",
-          `Listo, cancelé su turno del ${c.cuando}. El horario quedó liberado.${x.aviso_ultimo_momento ? " Gracias por avisar." : ""} ¿Quiere reprogramarlo? Tengo estos horarios:`);
+          `Listo, cancelé su turno del *${c.cuando}* y el horario quedó libre.${x.aviso_ultimo_momento ? " ¡Gracias por avisar!" : ""}\n\n¿Lo reprogramamos? {dia} tengo estos horarios:`);
       }
       if (has(t, "cambiar", "reprogram", "mover", "otro horario", "otro dia") && mem.step !== "elige_horario") {
         const r = await call("ver_citas_paciente", {});
@@ -135,7 +135,7 @@ export class MockProvider implements LlmProvider {
           mem.rescheduleId = r.citas[0].id;
           const pref = parseDay(t, now);
           return offer(pref?.[0] ?? now, pref?.[1] ?? now.plus({ days: 4 }), franja(t),
-            `Claro. Su turno actual es el ${r.citas[0].cuando}. Estos horarios están libres:`);
+            `¡Claro! Su turno actual es el *${r.citas[0].cuando}*. {dia} tengo libres:`);
         }
       }
 
@@ -155,16 +155,16 @@ export class MockProvider implements LlmProvider {
           }
         }
         const pref = parseDay(t, now);
-        if (!pick && pref) return offer(pref[0], pref[1], franja(t), "Perfecto, para ese día tengo:");
-        if (!pick) return "Disculpe, no identifiqué el horario. ¿Me indica el número de la opción (1, 2, 3 o 4)?";
+        if (!pick && pref) return offer(pref[0], pref[1], franja(t), "Perfecto. {dia} tengo:");
+        if (!pick) return "Disculpe, no identifiqué el horario. ¿Me responde con el número de la opción? (1, 2, 3 o 4)";
         mem.chosen = pick.inicio;
         if (mem.rescheduleId) {
           const r = await call("reprogramar_cita", { cita_id: mem.rescheduleId, nuevo_inicio: pick.inicio });
           if (!r.ok) return this.slotError(r, mem);
           mem.step = "idle"; mem.rescheduleId = undefined;
-          return `Listo ✅ Su turno quedó para el ${r.nueva.cuando}. El horario anterior quedó liberado.`;
+          return `¡Listo! ✅ Su turno ahora es el *${r.nueva.cuando}*. El horario anterior quedó libre.\n\nLe enviaré un recordatorio el día anterior.`;
         }
-        if (!mem.name) { mem.step = "pide_nombre"; return "Perfecto. ¿Me indica su nombre y apellido para la reserva?"; }
+        if (!mem.name) { mem.step = "pide_nombre"; return "¡Excelente! Para confirmar la reserva, ¿me indica su nombre y apellido?"; }
         return this.book(call, mem);
       }
       if (mem.step === "pide_nombre") {
@@ -176,29 +176,44 @@ export class MockProvider implements LlmProvider {
       const day = parseDay(t, now);
       if (has(t, "turno", "cita", "agendar", "reservar", "sacar", "quiero ir", "disponib", "lugar") || (day && mem.step === "idle" && has(t, "puedo", "tiene", "hay"))) {
         mem.treatment = treatmentOf(t) ?? mem.treatment ?? "Consulta y diagnóstico";
-        if (!day) return offer(now, now.plus({ days: 3 }), franja(t), "¡Con gusto! Estos son los próximos horarios libres:");
-        return offer(day[0], day[1], franja(t), "¡Con gusto! Para ese día tengo estos horarios libres:");
+        if (!day) return offer(now, now.plus({ days: 3 }), franja(t), "¡Con gusto! 📅 {dia} tengo estos horarios libres:");
+        return offer(day[0], day[1], franja(t), "¡Con gusto! 📅 {dia} tengo estos horarios libres:");
       }
 
       // 4) Consultas frecuentes
       if (has(t, "precio", "cuanto", "cuesta", "sale", "valor", "promo")) {
         const tr = treatmentOf(t);
         if (tr) mem.treatment = tr;
-        if (has(t, "promo") || !tr) return `${clinic.promo.name}: ${clinic.promo.detail} ¿Le reservo un turno?`;
+        if (has(t, "promo") || !tr) {
+          return `¡Qué bueno que le interese! 🦷 *${clinic.promo.name}*: limpieza dental + consulta de control por *USD 29* (precio normal USD 65). Válida para pacientes nuevos hasta el 31/12.\n\n¿Le busco un turno? Dígame qué día le queda mejor.`;
+        }
         const x = clinic.treatments.find((k) => norm(k.name).includes(norm(tr).split(" ")[0]!));
-        return x ? `${x.name}: ${x.price}. ${x.notes} ¿Desea agendar?` : `${clinic.promo.detail} ¿Desea agendar?`;
+        return x ? `*${x.name}*: ${x.price} (${x.duration}). ${x.notes}\n\n¿Quiere que le busque un turno?` : `${clinic.promo.detail}\n\n¿Quiere que le busque un turno?`;
       }
-      if (has(t, "horario", "atienden", "abren", "abierto")) return `Atendemos ${clinic.hoursText.charAt(0).toLowerCase()}${clinic.hoursText.slice(1)} ¿Le busco un turno?`;
-      if (has(t, "donde", "direccion", "ubicacion", "quedan")) return `Estamos en ${clinic.address}. ${clinic.reference}`;
+      if (has(t, "horario", "atienden", "abren", "abierto")) return `Atendemos ${clinic.hoursText.charAt(0).toLowerCase()}${clinic.hoursText.slice(1)}\n\n¿Le busco un turno?`;
+      if (has(t, "donde", "direccion", "ubicacion", "quedan")) return `📍 Estamos en ${clinic.address}. ${clinic.reference}\n\n¿Le busco un turno?`;
       if (has(t, "obra social", "prepaga", "cobertura")) return clinic.insurance;
       if (has(t, "pago", "tarjeta", "cuotas", "efectivo")) return clinic.payments;
-      if (has(t, "hola", "buen", "info", "informacion")) return `¡Hola! Bienvenido/a a ${clinic.name}. Puedo ayudarle a sacar un turno, contarle precios y la promo vigente, o resolver dudas. ¿Qué necesita?`;
+      if (has(t, "hola", "buen", "info", "informacion")) return GREETING_ONLY;
       if (has(t, "gracias", "listo", "perfecto", "dale", "ok")) return "¡Gracias a usted! Si necesita algo más, aquí estoy. 😊";
-      return "Disculpe, no estoy seguro de haber entendido. ¿Desea sacar un turno, consultar precios u horarios, o hablar con una persona?";
+      return "Disculpe, no estoy seguro de haber entendido. ¿Quiere *sacar un turno*, consultar *precios u horarios*, o *hablar con una persona*?";
     })();
 
-    const state = [...input.state, { role: "user", text: input.userText }, { role: "assistant", text: reply, mock: mem }];
-    return { text: reply, state, usage: emptyUsage(), toolCalls, modelCalls: 0 };
+    // Primer mensaje: saludo + presentación + respuesta + línea de privacidad (la indica el motor).
+    let text = reply;
+    if (input.turnContext.includes("PRIMER MENSAJE")) {
+      const profile = input.turnContext.match(/Nombre de perfil de WhatsApp \(no confirmado\): (.+)\./)?.[1];
+      const first = profile?.trim().split(/\s+/)[0];
+      const hello = `¡Hola${first ? `, ${first}` : ""}! 👋 Gracias por escribir a *${clinic.name}*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.`;
+      const body = reply === GREETING_ONLY ? "¿En qué puedo ayudarle hoy?" : reply;
+      const privacy = input.turnContext.match(/línea exacta: «(.+)»/)?.[1];
+      text = [hello, body, privacy].filter(Boolean).join("\n\n");
+    } else if (reply === GREETING_ONLY) {
+      text = "¡Hola de nuevo! ¿En qué puedo ayudarle? Puedo buscarle un turno, contarle precios o la promo vigente.";
+    }
+
+    const state = [...input.state, { role: "user", text: input.userText }, { role: "assistant", text, mock: mem }];
+    return { text, state, usage: emptyUsage(), toolCalls, modelCalls: 0 };
   }
 
   private slotError(r: any, mem: Memory): string {
@@ -206,16 +221,43 @@ export class MockProvider implements LlmProvider {
     mem.step = mem.slots.length ? "elige_horario" : "idle";
     const head = r.mensaje ?? "Ese horario no está disponible.";
     if (!mem.slots.length) return `${head} ¿Le busco otro día?`;
-    return `${head} Le propongo:\n${mem.slots.map((s, i) => `${i + 1}. ${cap(s.cuando)}`).join("\n")}`;
+    return `${head} Le propongo estas opciones:\n\n${slotList(mem.slots)}\n\n¿Cuál prefiere?`;
   }
 
   private async book(call: (n: string, a: Record<string, unknown>) => Promise<any>, mem: Memory): Promise<string> {
     const r = await call("crear_cita", { nombre_completo: mem.name, tratamiento: mem.treatment ?? "Consulta y diagnóstico", inicio: mem.chosen });
     if (!r.ok) return this.slotError(r, mem);
     mem.step = "idle";
-    return `Listo, ${mem.name!.split(" ")[0]} ✅ Su turno quedó reservado para el ${r.cita.cuando} (${r.cita.tratamiento}). Le enviaré un recordatorio el día anterior. Si no puede asistir, avíseme con 2 h de anticipación.`;
+    return [
+      `¡Listo, ${mem.name!.split(" ")[0]}! ✅ Su turno quedó confirmado:`,
+      "",
+      `📅 *${cap(r.cita.cuando)}*`,
+      `🦷 ${r.cita.tratamiento}`,
+      `📍 ${clinic.address.replace(" (dirección ficticia)", "")}`,
+      "",
+      "Le enviaré un recordatorio el día anterior. Si necesita cambiarlo, escríbame cuando quiera.",
+    ].join("\n");
   }
 }
 
+const GREETING_ONLY = "__saludo__";
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const KEYCAPS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
+
+/** "el *jueves 26/11*" si todas las opciones son del mismo día; si no, "En los próximos días". */
+function dayHeader(slots: Array<{ inicio: string }>): string {
+  const days = new Set(slots.map((s) => s.inicio.slice(0, 10)));
+  if (days.size !== 1) return "En los próximos días";
+  const d = DateTime.fromISO(slots[0]!.inicio, { zone: TZ() }).setLocale("es");
+  return `Para el *${d.toFormat("cccc dd/MM")}*`;
+}
+
+/** Lista con 1️⃣ 2️⃣…: solo horas si es un único día; día + hora si son varios. */
+function slotList(slots: Array<{ inicio: string }>): string {
+  const sameDay = new Set(slots.map((s) => s.inicio.slice(0, 10))).size === 1;
+  return slots.map((s, i) => {
+    const d = DateTime.fromISO(s.inicio, { zone: TZ() }).setLocale("es");
+    return `${KEYCAPS[i]} ${sameDay ? d.toFormat("HH:mm") : cap(d.toFormat("ccc dd/MM · HH:mm"))}`;
+  }).join("\n");
+}
 const humanKey = (k: string) => DateTime.fromISO(k, { zone: TZ() }).setLocale("es").toFormat("cccc dd/MM 'a las' HH:mm");

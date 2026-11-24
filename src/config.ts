@@ -39,6 +39,9 @@ export const config = {
     priceOut: num("OPENAI_PRICE_OUTPUT_PER_MTOK", 0),
   },
 
+  /** inline = una línea al final del saludo (por defecto) · separate = mensaje aparte · off = sin aviso */
+  privacyMode: env("PRIVACY_NOTICE", "inline") as "inline" | "separate" | "off",
+
   clinic: {
     timezone: env("CLINIC_TIMEZONE", "America/Argentina/Buenos_Aires"),
     /** Duración de cada turno en minutos */
