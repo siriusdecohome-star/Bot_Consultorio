@@ -4,7 +4,7 @@ Objetivo: que el bot responda en **tu WhatsApp personal** usando el número de p
 Tiempo estimado: 30–45 minutos. **Nunca pegues tokens ni claves en el chat:** van solo en el `.env`.
 
 > ⚠️ **Verificar en la documentación oficial** (Meta cambia pantallas y reglas seguido):
-> - La versión vigente de la Graph API (el proyecto usa `v23.0` por defecto, en `WHATSAPP_GRAPH_VERSION`).
+> - La versión vigente de la Graph API (el proyecto usa `v25.0`, la del ejemplo curl de Meta en noviembre de 2026; se cambia en `WHATSAPP_GRAPH_VERSION`).
 > - Los límites del número de prueba: hasta **5 destinatarios** verificados y solo para pruebas.
 > - Los nombres exactos de los menús de Meta for Developers y Business Manager.
 >
@@ -34,10 +34,12 @@ Meta necesita una **URL pública HTTPS** para avisarle al bot de cada mensaje. C
 
 ## Parte B — Número de prueba, destinatario y datos para el `.env`
 
-1. Abrí **WhatsApp → Configuración de la API** (o **API Setup**).
-2. En **De (From)** ya aparece un **número de prueba** que asigna Meta. Debajo vas a ver:
-   - **Identificador del número de teléfono** (Phone number ID) → va en `WHATSAPP_PHONE_NUMBER_ID`.
-   - **Token de acceso temporal** (botón *Generar token*) → va en `WHATSAPP_TOKEN`. **Dura ~24 horas**; sirve para probar hoy. El permanente está en la Parte E.
+1. Abrí **Casos de uso → Conectar en WhatsApp → Personalizar → Configuración básica → Paso 1. Probar** (en versiones anteriores: **WhatsApp → Configuración de la API / API Setup**).
+2. En **Número de test** aparece el número de prueba que asigna Meta (`+1 555 …`) y al lado:
+   - **Phone Number ID** → va en `WHATSAPP_PHONE_NUMBER_ID`.
+   - **Identificador de la cuenta de mensajes** (WABA): anotalo, lo vas a elegir en el paso siguiente.
+   - **Identificador de acceso** → botón **Generar identificador** → va en `WHATSAPP_TOKEN`. **Dura ~24 horas**; sirve para probar hoy. El permanente está en la Parte F.
+   - Al generarlo, Meta pregunta a qué **Cuentas de WhatsApp** dar acceso: elegí **"Activa solo las cuentas de WhatsApp actuales"** y marcá **solo** la que tenga el mismo número que el *Identificador de la cuenta de mensajes* (suele llamarse *Test Messaging Account*).
 3. En **Para (To)** tocá **Administrar lista de números de teléfono** → **Agregar número**:
    - Escribí tu WhatsApp personal con código de país (por ejemplo `+54 9 11 …` o `+591 7…`).
    - Te llega un código por WhatsApp: ingresalo para verificarlo.

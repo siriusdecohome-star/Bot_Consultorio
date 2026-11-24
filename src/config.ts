@@ -64,8 +64,8 @@ export const config = {
     verifyToken: env("WHATSAPP_VERIFY_TOKEN"),
     /** "Clave secreta de la app" (Configuración de la app → Básica): valida que los avisos vengan de Meta */
     appSecret: env("WHATSAPP_APP_SECRET"),
-    /** Versión de la Graph API (verificar la vigente en la documentación de Meta) */
-    graphVersion: env("WHATSAPP_GRAPH_VERSION", "v23.0"),
+    /** Versión de la Graph API (la que usa el ejemplo de Meta en "API Setup"; verificar si cambia) */
+    graphVersion: env("WHATSAPP_GRAPH_VERSION", "v25.0"),
   },
 
   port: num("PORT", 3000),
