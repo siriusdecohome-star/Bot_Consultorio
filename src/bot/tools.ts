@@ -4,6 +4,7 @@ import type { ToolDef } from "../llm/types.js";
 import { Availability, type CalendarService, type Franja } from "../services/calendar.js";
 import { SlotTakenError, type Appointment, type Conversation, type Patient, type Store } from "../services/store.js";
 import { human, localKey, parseLocal, slotMinutes, toLocal, type Clock } from "../services/time.js";
+import { kb } from "../data/knowledge.js";
 
 /**
  * Herramientas que el modelo puede llamar. Toda acción real (consultar agenda,
@@ -95,6 +96,17 @@ export const toolDefs: ToolDef[] = [
         resumen: { type: "string", description: "Resumen breve para la persona que toma la conversación: quién es, qué necesita y qué se hizo." },
       },
       required: ["motivo", "resumen"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "buscar_en_documentos",
+    description:
+      "Busca en los documentos que subió el consultorio (protocolos, indicaciones, preguntas frecuentes ampliadas). Úsela cuando la pregunta no se responde con la información del prompt, antes de decir que no sabe. Responda solo con lo que devuelva.",
+    parameters: {
+      type: "object",
+      properties: { consulta: { type: "string", description: "Qué buscar, con las palabras clave de la pregunta del paciente." } },
+      required: ["consulta"],
       additionalProperties: false,
     },
   },
@@ -212,7 +224,7 @@ export function makeExecutor(ctx: ToolContext) {
           return tryBook(start, async () => {
             const a = await book(nombre, String(input.tratamiento), start);
             if (!ctx.patient.name) ctx.patient = await ctx.store.updatePatient(ctx.patient.id, { name: nombre });
-            return { ok: true, cita: view(a), politica: "Avisar con 2 h de anticipación si no puede asistir." };
+            return { ok: true, cita: view(a), politica: kb().cancellationPolicy };
           });
         });
       }
@@ -231,7 +243,7 @@ export function makeExecutor(ctx: ToolContext) {
         if (!a) return { ok: false, error: "cita_no_encontrada" };
         if (a.status === "cancelada") return { ok: false, error: "ya_cancelada" };
         if (a.calendarEventId) await ctx.calendar.deleteEvent(a.calendarEventId);
-        await ctx.store.updateAppointment(a.id, { status: "cancelada" });
+        await ctx.store.updateAppointment(a.id, { status: "cancelada", cancelledAt: ctx.clock().toISOString() });
         const start = toLocal(a.start);
         const lastMinute = start.diff(toLocal(ctx.clock()), "hours").hours < 2;
         return {
@@ -276,6 +288,13 @@ export function makeExecutor(ctx: ToolContext) {
         });
         ctx.conversation.handedOff = true;
         return { ok: true, derivacion_id: h.id, mensaje: "Una persona del equipo continuará la conversación en horario de atención." };
+      }
+
+      case "buscar_en_documentos": {
+        const hits = await ctx.store.searchDocuments(String(input.consulta ?? ""), 3);
+        return hits.length
+          ? { resultados: hits.map((h) => ({ documento: h.name, texto: h.content })), nota: "Responda solo con esta información, resumida." }
+          : { resultados: [], nota: "No hay información en los documentos. Dígalo con honestidad y ofrezca derivar a una persona." };
       }
 
       default:

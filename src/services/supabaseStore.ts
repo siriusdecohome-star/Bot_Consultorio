@@ -2,8 +2,10 @@
 import {
   DEFAULT_CLINIC_ID, SlotTakenError,
   type Appointment, type AppointmentFilter, type Channel, type Conversation, type Handoff, type Patient,
-  type Store, type TurnMetric,
+  type Store, type TurnMetric, type ClinicDocument, type DocumentHit,
 } from "./store.js";
+import type { ClinicKnowledge } from "../clinics/types.js";
+import { tsQuery } from "./textSearch.js";
 
 let seq = 0;
 const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -22,7 +24,7 @@ const toPatient = (r: any): Patient => ({
 });
 const toConv = (r: any): Conversation => ({
   id: r.id, patientId: r.patient_id, channel: r.channel, llmProvider: r.llm_provider, llmState: r.llm_state,
-  messages: r.messages, privacyShown: r.privacy_shown, handedOff: r.handed_off,
+  messages: r.messages, privacyShown: r.privacy_shown, handedOff: r.handed_off, botPaused: r.bot_paused ?? false,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const toAppt = (r: any): Appointment => ({
@@ -30,6 +32,7 @@ const toAppt = (r: any): Appointment => ({
   start: new Date(r.start_at).toISOString(), end: new Date(r.end_at).toISOString(), status: r.status,
   calendarEventId: r.calendar_event_id, confirmedByPatient: r.confirmed_by_patient,
   reminder24Sent: r.reminder24_sent, reminder2Sent: r.reminder2_sent, createdAt: r.created_at,
+  cancelledAt: r.cancelled_at ?? null,
 });
 const apptPatch = (p: Partial<Appointment>) => {
   const m: Record<string, unknown> = {};
@@ -42,6 +45,7 @@ const apptPatch = (p: Partial<Appointment>) => {
   if (p.confirmedByPatient !== undefined) m.confirmed_by_patient = p.confirmedByPatient;
   if (p.reminder24Sent !== undefined) m.reminder24_sent = p.reminder24Sent;
   if (p.reminder2Sent !== undefined) m.reminder2_sent = p.reminder2Sent;
+  if (p.cancelledAt !== undefined) m.cancelled_at = p.cancelledAt;
   return m;
 };
 const toHandoff = (r: any): Handoff => ({
@@ -121,7 +125,7 @@ export class SupabaseStore implements Store {
   async saveConversation(c: Conversation) {
     check(await this.from("conversations").update({
       llm_provider: c.llmProvider, llm_state: c.llmState, messages: c.messages,
-      privacy_shown: c.privacyShown, handed_off: c.handedOff, updated_at: new Date().toISOString(),
+      privacy_shown: c.privacyShown, handed_off: c.handedOff, bot_paused: c.botPaused, updated_at: new Date().toISOString(),
     }).eq("clinic_id", this.clinicId).eq("id", c.id));
   }
   async listConversations() {
@@ -187,7 +191,44 @@ export class SupabaseStore implements Store {
     }));
   }
 
+  async updateKnowledge(k: ClinicKnowledge) {
+    // Con el token de un usuario, la política RLS solo deja actualizar al admin de la clínica.
+    const rows = check(await this.from("clinics").update({ knowledge: k }).eq("id", this.clinicId).select("id"));
+    if (!rows?.length) throw new Error("Sin permiso para editar esta clínica (solo el admin).");
+  }
+  async listDocuments(): Promise<ClinicDocument[]> {
+    const rows = check(await this.from("documents").select("*").eq("clinic_id", this.clinicId).order("created_at", { ascending: false }));
+    return (rows ?? []).map((r: any) => ({ id: r.id, name: r.name, mime: r.mime, sizeBytes: r.size_bytes, chunks: r.chunks, createdAt: r.created_at }));
+  }
+  async addDocument(doc: Omit<ClinicDocument, "id" | "createdAt" | "chunks">, chunks: string[]) {
+    const id = newId("doc");
+    const row = check(await this.from("documents").insert({
+      id, clinic_id: this.clinicId, name: doc.name, mime: doc.mime, size_bytes: doc.sizeBytes, chunks: chunks.length,
+    }).select().single());
+    try {
+      for (let i = 0; i < chunks.length; i += 200) {
+        check(await this.from("document_chunks").insert(
+          chunks.slice(i, i + 200).map((content, j) => ({ document_id: id, clinic_id: this.clinicId, ord: i + j, content })),
+        ));
+      }
+    } catch (err) {
+      await this.from("documents").delete().eq("id", id);
+      throw err;
+    }
+    return { id, name: row.name, mime: row.mime, sizeBytes: row.size_bytes, chunks: row.chunks, createdAt: row.created_at };
+  }
+  async deleteDocument(id: string) {
+    check(await this.from("documents").delete().eq("clinic_id", this.clinicId).eq("id", id));
+  }
+  async searchDocuments(query: string, limit = 3): Promise<DocumentHit[]> {
+    const q = tsQuery(query);
+    if (!q) return [];
+    const rows = check(await this.db.rpc("search_document_chunks", { cid: this.clinicId, q, max_results: limit }));
+    return ((rows as any[]) ?? []).map((r) => ({ documentId: r.document_id, name: r.name, content: r.content, rank: Number(r.rank) }));
+  }
+
   /** Para el script de verificación: cuántas clínicas hay cargadas. */
+
   async ping(): Promise<number> {
     // Sin "head": así, si falla, el error trae mensaje (una consulta HEAD lo devuelve vacío).
     const r = await this.from("clinics").select("id", { count: "exact" }).limit(1);

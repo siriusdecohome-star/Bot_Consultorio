@@ -123,7 +123,24 @@ try {
   assert.equal(costs.data?.length ?? 0, 0, "recepción no debe ver costos");
   const otherClinic = await asRec.from("clinics").select("id");
   assert.deepEqual(otherClinic.data?.map((c: any) => c.id), [CLINIC_A], "solo ve su clínica");
+  // RLS sobre documentos: recepción los lee pero no puede subirlos
+  const docIns = await asRec.from("documents").insert({ id: `rls_doc_${Date.now()}`, clinic_id: CLINIC_A, name: "x", mime: "text/plain", size_bytes: 1 });
+  assert.ok(docIns.error, "recepción no debe poder subir documentos");
   await pub.auth.signOut();
+
+  // 8. Documentos: búsqueda de texto en PostgreSQL (tsvector en español + función search_document_chunks)
+  const doc = await store.addDocument({ name: "prueba-integracion.txt", mime: "text/plain", sizeBytes: 100 }, [
+    "Después de un blanqueamiento evite café, té y vino tinto durante 48 horas.",
+    "El consultorio tiene ascensor y estacionamiento medido en la cuadra.",
+  ]);
+  try {
+    const hits = await store.searchDocuments("¿Puedo tomar café después del blanqueamiento?");
+    assert.ok(hits[0]?.content.includes("café"), `la búsqueda debe encontrar el fragmento: ${JSON.stringify(hits)}`);
+    assert.equal((await storeB.searchDocuments("blanqueamiento café")).length, 0, "la clínica B no ve los documentos de A");
+    step("documentos: la búsqueda de texto de Postgres encuentra el fragmento y no cruza clínicas");
+  } finally {
+    await store.deleteDocument(doc.id);
+  }
   step("RLS: la recepcionista de A ve su clínica y no puede leer ni escribir la B, ni editar la configuración, ni ver costos");
 
   console.log("\n✅ Integración OK");

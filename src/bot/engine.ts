@@ -87,6 +87,12 @@ export class BotEngine {
     const at = this.clock().toISOString();
     conv.messages.push({ role: "patient", text: msg.text, at });
 
+    // Bot en pausa desde el panel: el mensaje queda registrado y no se responde nada.
+    if (conv.botPaused) {
+      await this.store.saveConversation(conv);
+      return { messages: [], conversationId: conv.id, handedOff: conv.handedOff, toolCalls: [] };
+    }
+
     const out: string[] = [];
     // Primer mensaje de la conversación: el asistente saluda, se presenta y menciona
     // la privacidad en una línea (modo "inline"). "separate" = mensaje aparte; "off" = sin aviso.

@@ -3,6 +3,9 @@
  * la implementación con Supabase (PostgreSQL) que cumple la misma interfaz.
  */
 
+import type { ClinicKnowledge } from "../clinics/types.js";
+import { score, terms } from "./textSearch.js";
+
 export type Channel = "web" | "whatsapp" | "cli" | "test";
 
 export interface Patient {
@@ -29,6 +32,8 @@ export interface Appointment {
   reminder24Sent: boolean;
   reminder2Sent: boolean;
   createdAt: string;
+  /** Cuándo se canceló (para las estadísticas). */
+  cancelledAt?: string | null;
 }
 
 export interface ChatMessage {
@@ -50,6 +55,8 @@ export interface Conversation {
   privacyShown: boolean;
   /** true cuando una persona tomó la conversación: el bot deja de responder. */
   handedOff: boolean;
+  /** Pausa manual desde el panel: el bot no responde nada (ni el aviso de recepción). */
+  botPaused: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +83,23 @@ export interface TurnMetric {
   modelCalls: number;
   tools: string[];
   at: string;
+}
+
+/** Documento subido por el consultorio (PDF/Word), ya convertido a texto y partido en fragmentos. */
+export interface ClinicDocument {
+  id: string;
+  name: string;
+  mime: string;
+  sizeBytes: number;
+  chunks: number;
+  createdAt: string;
+}
+
+export interface DocumentHit {
+  documentId: string;
+  name: string;
+  content: string;
+  rank: number;
 }
 
 /** El horario ya fue tomado por otro turno activo (doble reserva). */
@@ -122,6 +146,14 @@ export interface Store {
 
   logMetric(m: TurnMetric): Promise<void>;
   listMetrics(): Promise<TurnMetric[]>;
+
+  // Zona de aprendizaje
+  updateKnowledge(k: ClinicKnowledge): Promise<void>;
+  listDocuments(): Promise<ClinicDocument[]>;
+  addDocument(doc: Omit<ClinicDocument, "id" | "createdAt" | "chunks">, chunks: string[]): Promise<ClinicDocument>;
+  deleteDocument(id: string): Promise<void>;
+  /** Fragmentos más parecidos a la consulta (búsqueda de texto, no vectores). */
+  searchDocuments(query: string, limit?: number): Promise<DocumentHit[]>;
 }
 
 let seq = 0;
@@ -136,6 +168,9 @@ interface MemoryData {
   appointments: Map<string, Owned<Appointment>>;
   handoffs: Array<Owned<Handoff>>;
   metrics: Array<Owned<TurnMetric>>;
+  documents: Array<Owned<ClinicDocument>>;
+  chunks: Array<{ documentId: string; clinicId: string; content: string }>;
+  knowledge: Map<string, ClinicKnowledge>;
 }
 
 export const DEFAULT_CLINIC_ID = "sonrisa-clara";
@@ -151,7 +186,7 @@ export class InMemoryStore implements Store {
 
   /** El reloj es inyectable para que las pruebas con tiempo simulado fechen bien los registros. */
   constructor(private clock: () => Date = () => new Date(), readonly clinicId = DEFAULT_CLINIC_ID, data?: MemoryData) {
-    this.data = data ?? { patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [] };
+    this.data = data ?? { patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [], documents: [], chunks: [], knowledge: new Map() };
   }
   forClinic(clinicId: string): Store {
     return new InMemoryStore(this.clock, clinicId, this.data);
@@ -186,7 +221,7 @@ export class InMemoryStore implements Store {
     if (found) return structuredClone(strip(found));
     const c: Owned<Conversation> = {
       id: id("conv"), patientId: patient.id, channel, llmState: [], llmProvider: "",
-      messages: [], privacyShown: false, handedOff: false, createdAt: this.now(), updatedAt: this.now(), clinicId: this.clinicId,
+      messages: [], privacyShown: false, handedOff: false, botPaused: false, createdAt: this.now(), updatedAt: this.now(), clinicId: this.clinicId,
     };
     this.data.conversations.set(c.id, c);
     return structuredClone(strip(c));
@@ -257,4 +292,34 @@ export class InMemoryStore implements Store {
   async listMetrics() {
     return this.data.metrics.filter((m) => this.mine(m)).map((m) => strip(m));
   }
+
+  async updateKnowledge(k: ClinicKnowledge) {
+    this.data.knowledge.set(this.clinicId, structuredClone(k));
+  }
+  async listDocuments() {
+    return this.data.documents.filter((d) => this.mine(d)).map((d) => strip(d)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  async addDocument(doc: Omit<ClinicDocument, "id" | "createdAt" | "chunks">, chunks: string[]) {
+    const d: Owned<ClinicDocument> = { ...doc, id: id("doc"), chunks: chunks.length, createdAt: this.now(), clinicId: this.clinicId };
+    this.data.documents.push(d);
+    for (const content of chunks) this.data.chunks.push({ documentId: d.id, clinicId: this.clinicId, content });
+    return strip(d);
+  }
+  async deleteDocument(did: string) {
+    if (!this.mine(this.data.documents.find((d) => d.id === did))) return;
+    this.data.documents = this.data.documents.filter((d) => d.id !== did);
+    this.data.chunks = this.data.chunks.filter((c) => c.documentId !== did);
+  }
+  async searchDocuments(query: string, limit = 3) {
+    const q = terms(query);
+    if (!q.length) return [];
+    const names = new Map(this.data.documents.map((d) => [d.id, d.name]));
+    return this.data.chunks
+      .filter((c) => c.clinicId === this.clinicId)
+      .map((c) => ({ documentId: c.documentId, name: names.get(c.documentId) ?? "", content: c.content, rank: score(c.content, q) }))
+      .filter((h) => h.rank > 0)
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, limit);
+  }
 }
+

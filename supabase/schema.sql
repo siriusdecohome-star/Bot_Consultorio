@@ -129,6 +129,54 @@ create table if not exists test_results (
 );
 
 -- ============================================================
+-- Panel y zona de aprendizaje (puntos 2 y 3). Con "if not exists" para poder
+-- ejecutar el archivo otra vez sobre una base ya creada sin perder datos.
+-- ============================================================
+
+-- Pausa manual del bot en una conversación (sin derivarla).
+alter table conversations add column if not exists bot_paused boolean not null default false;
+-- Fecha de cancelación, para las estadísticas.
+alter table appointments add column if not exists cancelled_at timestamptz;
+
+-- Documentos que sube el consultorio (PDF/Word/texto), ya convertidos a texto.
+create table if not exists documents (
+  id          text primary key,
+  clinic_id   text not null references clinics(id) on delete cascade,
+  name        text not null,
+  mime        text not null,
+  size_bytes  integer not null,
+  chunks      integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+
+-- Fragmentos de cada documento con su índice de búsqueda de texto en español.
+-- Es búsqueda de texto (palabras), no vectores: ver README → "Documentos y búsqueda".
+create table if not exists document_chunks (
+  id           bigserial primary key,
+  document_id  text not null references documents(id) on delete cascade,
+  clinic_id    text not null references clinics(id) on delete cascade,
+  ord          integer not null,
+  content      text not null,
+  tsv          tsvector generated always as (to_tsvector('spanish', content)) stored
+);
+create index if not exists document_chunks_tsv_idx on document_chunks using gin (tsv);
+create index if not exists document_chunks_clinic_idx on document_chunks (clinic_id);
+
+-- Los fragmentos más relevantes de una clínica para una consulta.
+-- `q` llega con los términos unidos por "or" (si no, websearch_to_tsquery exige todos).
+-- Corre con los permisos de quien llama: con el token de un usuario aplica el RLS.
+create or replace function public.search_document_chunks(cid text, q text, max_results integer default 3)
+returns table (document_id text, name text, content text, rank real)
+language sql stable set search_path = public as $$
+  select c.document_id, d.name, c.content, ts_rank(c.tsv, websearch_to_tsquery('spanish', q)) as rank
+  from document_chunks c
+  join documents d on d.id = c.document_id
+  where c.clinic_id = cid and c.tsv @@ websearch_to_tsquery('spanish', q)
+  order by rank desc
+  limit greatest(1, least(max_results, 10))
+$$;
+
+-- ============================================================
 -- Seguridad por clínica (RLS)
 -- ============================================================
 -- El panel consulta la base con el token del usuario (rol `authenticated`):
@@ -183,6 +231,20 @@ begin
   end loop;
 end $$;
 
+-- Documentos: todo el equipo los lee (el probador y el bot los usan); solo el admin los sube o borra.
+alter table documents       enable row level security;
+alter table document_chunks enable row level security;
+drop policy if exists documents_read  on documents;
+drop policy if exists documents_admin on documents;
+drop policy if exists chunks_read     on document_chunks;
+drop policy if exists chunks_admin    on document_chunks;
+create policy documents_read  on documents for select to authenticated using (clinic_id in (select public.my_clinic_ids()));
+create policy documents_admin on documents for all to authenticated
+  using (public.is_clinic_admin(clinic_id)) with check (public.is_clinic_admin(clinic_id));
+create policy chunks_read  on document_chunks for select to authenticated using (clinic_id in (select public.my_clinic_ids()));
+create policy chunks_admin on document_chunks for all to authenticated
+  using (public.is_clinic_admin(clinic_id)) with check (public.is_clinic_admin(clinic_id));
+
 -- Costos (tokens y USD): solo el admin.
 drop policy if exists turn_metrics_admin on turn_metrics;
 create policy turn_metrics_admin on turn_metrics for select to authenticated using (public.is_clinic_admin(clinic_id));
@@ -203,5 +265,8 @@ grant usage, select on all sequences in schema public to service_role;
 grant select, insert, update, delete on patients, conversations, appointments, handoffs to authenticated;
 grant select, update on clinics to authenticated;
 grant select on clinic_members, turn_metrics, test_results to authenticated;
+grant select, insert, delete on documents, document_chunks to authenticated;
+grant usage, select on sequence document_chunks_id_seq to authenticated;
 revoke all on all tables in schema public from anon;
 grant execute on function public.my_clinic_ids(), public.is_clinic_admin(text) to authenticated;
+grant execute on function public.search_document_chunks(text, text, integer) to authenticated, service_role;

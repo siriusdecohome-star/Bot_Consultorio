@@ -44,6 +44,8 @@ if (services.calendarKind === "memoria") {
 const auth = createAuth(services.storeKind);
 
 const app = express();
+// Documentos de la zona de aprendizaje: llegan en base64, con un límite mayor (8 MB de archivo).
+app.use("/api/panel/documents", express.json({ limit: "12mb" }));
 // Se guarda el cuerpo crudo: la firma de Meta se calcula sobre los bytes exactos recibidos.
 app.use(express.json({
   limit: "1mb",

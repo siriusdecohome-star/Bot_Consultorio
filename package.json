@@ -20,9 +20,10 @@
     "wa:templates": "tsx scripts/wa-templates.ts",
     "test:reminders": "tsx tests/reminders.ts",
     "test:cases": "tsx tests/scenarios.ts",
-    "test": "npm run typecheck && npm run smoke && npm run test:whatsapp && npm run test:reminders && npm run test:clinics && npm run test:cases",
+    "test": "npm run typecheck && npm run smoke && npm run test:whatsapp && npm run test:reminders && npm run test:clinics && npm run test:panel && npm run test:cases",
     "seed:users": "tsx scripts/seed-users.ts",
-    "test:clinics": "tsx tests/multiclinic.ts"
+    "test:clinics": "tsx tests/multiclinic.ts",
+    "test:panel": "tsx tests/panel.ts"
   },
   "keywords": [],
   "author": "",
@@ -35,7 +36,9 @@
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "luxon": "^3.7.2",
-    "openai": "^7.63.0"
+    "mammoth": "^1.13.0",
+    "openai": "^7.63.0",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { kb } from "../data/knowledge.js";
+import { bestSnippet } from "../services/textSearch.js";
 import { TZ } from "../services/time.js";
 import { emptyUsage, type LlmProvider, type ToolCallLog, type TurnInput, type TurnResult } from "./types.js";
 
@@ -215,7 +216,13 @@ export class MockProvider implements LlmProvider {
         return offer(day[0], day[1], franja(t), "¡Con gusto! 📅 {dia} tengo estos horarios libres:");
       }
 
-      // 4) Consultas frecuentes
+      // 4) Preguntas frecuentes cargadas por el consultorio (antes que las reglas generales)
+      const faq = (kb().faq ?? []).find((f) => {
+        const words = norm(f.q).split(/\s+/).filter((w) => w.length > 3);
+        return words.length > 0 && words.filter((w) => t.includes(w)).length >= Math.min(2, words.length);
+      });
+      if (faq) return `${faq.a}\n\n¿Le ayudo con algo más?`;
+      // 4b) Consultas frecuentes
       if (has(t, "precio", "cuanto", "cuesta", "sale", "valor", "promo")) {
         const tr = treatmentOf(t);
         if (tr) mem.treatment = tr;
@@ -229,6 +236,15 @@ export class MockProvider implements LlmProvider {
       if (has(t, "donde", "direccion", "ubicacion", "quedan")) return `📍 Estamos en ${kb().address}. ${kb().reference}\n\n¿Le busco un turno?`;
       if (has(t, "obra social", "prepaga", "cobertura")) return kb().insurance;
       if (has(t, "pago", "tarjeta", "cuotas", "efectivo")) return kb().payments;
+      // 5) Documentos subidos por el consultorio
+      if (!has(t, "hola", "buen", "gracias", "listo", "perfecto", "dale", "ok") || t.split(" ").length > 4) {
+        const docs = await call("buscar_en_documentos", { consulta: input.userText });
+        if (docs.resultados?.length) {
+          const r0 = docs.resultados[0];
+          const text = bestSnippet(r0.texto, input.userText);
+          return `Según la información del consultorio (_${r0.documento}_):\n\n${text}\n\n¿Le ayudo con algo más?`;
+        }
+      }
       if (has(t, "hola", "buen", "info", "informacion")) return GREETING_ONLY;
       if (has(t, "gracias", "listo", "perfecto", "dale", "ok")) return "¡Gracias a usted! Si necesita algo más, aquí estoy. 😊";
       return "Disculpe, no estoy seguro de haber entendido. ¿Quiere *sacar un turno*, consultar *precios u horarios*, o *hablar con una persona*?";
