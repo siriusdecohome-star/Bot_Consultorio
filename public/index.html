@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bot de citas · Demo</title>
+  <meta name="description" content="Simulador del asistente de turnos por WhatsApp para consultorios odontológicos (demo con datos ficticios)." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%2325D366'/%3E%3Cpath fill='white' d='M22 18c-5 0-8 4-8 10 0 5 2 9 3 14 1 4 2 8 5 8s3-5 4-9 2-6 6-6 5 2 6 6 1 9 4 9 4-4 5-8c1-5 3-9 3-14 0-6-3-10-8-10-4 0-6 2-10 2s-6-2-10-2z'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <div>
+        <h1>Asistente de turnos por WhatsApp</h1>
+        <p id="subtitle">Demo para consultorios odontológicos · datos ficticios</p>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="chip-btn" id="btn-new" title="Empezar una conversación nueva">↺ Nueva conversación</button>
+      <label class="toggle"><input type="checkbox" id="tg-agenda" checked /> Agenda</label>
+      <label class="toggle"><input type="checkbox" id="tg-metrics" checked /> Métricas</label>
+      <label class="toggle"><input type="checkbox" id="tg-chips" checked /> Sugerencias</label>
+      <button class="chip-btn" id="btn-rec" title="Oculta los controles para grabar la pantalla">● Modo grabación</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <!-- Teléfono -->
+    <section class="phone-col">
+      <div class="phone" aria-label="Simulador de WhatsApp">
+        <div class="phone-notch"></div>
+        <div class="statusbar">
+          <span id="clock">9:41</span>
+          <span class="status-icons" aria-hidden="true">
+            <svg viewBox="0 0 18 12" width="18" height="12"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+            <svg viewBox="0 0 16 12" width="16" height="12"><path d="M8 11.5 5.6 9a3.4 3.4 0 0 1 4.8 0L8 11.5Zm-4.2-4.3a6 6 0 0 1 8.4 0l1.3-1.3a7.9 7.9 0 0 0-11 0l1.3 1.3ZM1.2 4.6a9.6 9.6 0 0 1 13.6 0L16 3.4a11.3 11.3 0 0 0-16 0l1.2 1.2Z"/></svg>
+            <svg viewBox="0 0 27 12" width="25" height="12"><rect x="0.5" y="0.5" width="22" height="11" rx="3" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="16" height="8" rx="2"/><rect x="24" y="4" width="2" height="4" rx="1" opacity=".5"/></svg>
+          </span>
+        </div>
+
+        <div class="wa-header">
+          <svg class="wa-back" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15.5 4 7.5 12l8 8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="wa-avatar" aria-hidden="true">
+            <svg viewBox="0 0 64 64"><path fill="currentColor" d="M22 14c-6 0-10 5-10 12 0 6 2 11 3.5 17C17 48 18 54 22 54s4-6 5-11 2.5-7 5-7 4 2 5 7 1 11 5 11 5-6 6.5-11C50 37 52 32 52 26c0-7-4-12-10-12-4.5 0-6.5 2.5-10 2.5S26.5 14 22 14Z"/></svg>
+          </div>
+          <div class="wa-title">
+            <strong id="wa-name">Sonrisa Clara</strong>
+            <span id="wa-status">en línea</span>
+          </div>
+          <div class="wa-actions" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="21" height="21"><path fill="currentColor" d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4Z"/></svg>
+            <svg viewBox="0 0 24 24" width="19" height="19"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1L6.6 10.8Z"/></svg>
+          </div>
+        </div>
+
+        <div class="wa-chat" id="chat" aria-live="polite">
+          <div class="day-pill">Hoy</div>
+        </div>
+
+        <div class="quick" id="quick">
+          <button data-q="Hola, vi la promo de limpieza 😊">Vi la promo</button>
+          <button data-q="Quiero sacar un turno para mañana a la mañana">Sacar turno</button>
+          <button data-q="¿Dónde quedan y qué horarios tienen?">Horarios y ubicación</button>
+          <button data-q="No voy a poder ir, quiero cancelar mi turno">Cancelar turno</button>
+          <button data-q="Prefiero hablar con una persona">Hablar con una persona</button>
+        </div>
+
+        <form class="wa-input" id="form" autocomplete="off">
+          <div class="wa-field">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="10" r="1.2" fill="currentColor"/><circle cx="15" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 14.2a4.2 4.2 0 0 0 7 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="input" type="text" placeholder="Mensaje" maxlength="600" aria-label="Escriba un mensaje" />
+          </div>
+          <button class="wa-send" id="send" type="submit" aria-label="Enviar">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
+          </button>
+        </form>
+        <div class="home-bar"></div>
+      </div>
+
+      <div class="metrics" id="metrics">
+        <div class="metric"><span>Respuesta</span><strong id="m-lat">—</strong></div>
+        <div class="metric"><span>Costo del mensaje</span><strong id="m-cost">—</strong></div>
+        <div class="metric"><span>Costo conversación</span><strong id="m-total">—</strong></div>
+        <div class="metric wide"><span>Herramientas</span><strong id="m-tools">—</strong></div>
+      </div>
+    </section>
+
+    <!-- Agenda -->
+    <section class="agenda-col" id="agenda-col">
+      <div class="agenda-card">
+        <div class="agenda-head">
+          <div>
+            <h2>Agenda del consultorio</h2>
+            <p id="agenda-source">Cargando…</p>
+          </div>
+          <div class="agenda-nav">
+            <button id="wk-prev" aria-label="Semana anterior">‹</button>
+            <span id="wk-label">—</span>
+            <button id="wk-next" aria-label="Semana siguiente">›</button>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="sw sw-free"></i>Libre</span>
+          <span><i class="sw sw-busy"></i>Ocupado</span>
+          <span><i class="sw sw-bot"></i>Reservado por el bot</span>
+          <span><i class="sw sw-closed"></i>Cerrado</span>
+        </div>
+        <div class="grid-wrap">
+          <div class="grid" id="grid"></div>
+        </div>
+        <div class="toast" id="toast" role="status"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">Proyecto de portafolio · Todos los datos son ficticios · No es un servicio médico</footer>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

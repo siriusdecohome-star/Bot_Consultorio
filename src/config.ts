@@ -1,4 +1,10 @@
-import "dotenv/config";
+import { config as loadEnv } from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** Raíz del proyecto: el .env y las rutas relativas se resuelven desde acá, no desde la carpeta actual. */
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+loadEnv({ path: path.join(ROOT, ".env"), quiet: true });
 
 /** Lee una variable de entorno con valor por defecto. Nunca hay claves hardcodeadas. */
 function env(name: string, fallback = ""): string {
@@ -46,7 +52,7 @@ export const config = {
 
   google: {
     calendarId: env("GOOGLE_CALENDAR_ID"),
-    keyFile: env("GOOGLE_SERVICE_ACCOUNT_JSON_PATH", "secrets/google-service-account.json"),
+    keyFile: path.resolve(ROOT, env("GOOGLE_SERVICE_ACCOUNT_JSON_PATH", "secrets/google-service-account.json")),
   },
 
   port: num("PORT", 3000),

@@ -14,6 +14,18 @@ npm run chat    # chat por consola
 
 Por defecto `LLM_PROVIDER=mock`: un motor de reglas que usa las mismas herramientas que la IA, sin costo.
 
+## Simulador web (etapa 3)
+
+```powershell
+npm run dev     # abre http://localhost:3000
+```
+
+Chat con aspecto de WhatsApp dentro de un marco de celular, más la agenda de la semana en vivo (Google Calendar o memoria). Al reservar, el turno se ilumina en verde; al cancelar, el horario parpadea en rojo y queda libre.
+
+- **Modo grabación:** oculta los controles para grabar la pantalla (también con `?modo=grabacion`).
+- **Origen del lead:** `?source=promo-noviembre` (valor por defecto) queda guardado en el paciente.
+- **Límite de uso:** 40 mensajes cada 10 minutos por IP (`WEB_MAX_MSGS_PER_10MIN`), para cuidar el saldo de la API si se comparte el link.
+
 ## Usar IA real
 
 1. Copiar `.env.example` a `.env`.
