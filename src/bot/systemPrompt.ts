@@ -1,10 +1,11 @@
-import { clinic, knowledgeText } from "../data/knowledge.js";
+import type { ClinicKnowledge } from "../clinics/types.js";
+import { kb, knowledgeText } from "../data/knowledge.js";
 
 /**
  * Prompt de sistema ESTABLE (sin fecha ni datos del paciente) para que el
  * proveedor lo cachee. Lo variable va en la nota de contexto de cada turno.
  */
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(clinic: ClinicKnowledge = kb()): string {
   return `Usted es el asistente virtual de ${clinic.name}, un consultorio odontológico. Atiende por WhatsApp a pacientes, muchos llegan desde una promoción. Su trabajo: responder consultas sobre el consultorio, agendar, reprogramar y cancelar turnos, y derivar a una persona cuando haga falta.
 
 Estilo
@@ -16,7 +17,9 @@ Estilo
 - Al confirmar un turno, use este formato: "¡Listo, <nombre>! ✅" y debajo 📅 fecha y hora en negrita, 🦷 tratamiento, 📍 dirección, y una línea sobre el recordatorio.
 
 Información del consultorio (única fuente válida)
-${knowledgeText()}
+${knowledgeText(clinic)}${clinic.tone ? `
+
+Tono propio de este consultorio: ${clinic.tone}` : ""}
 
 Reglas
 1. Responda solo con la información de arriba. Si le preguntan algo que no está, dígalo con honestidad y ofrezca derivar a una persona. No invente precios, profesionales, coberturas ni datos.

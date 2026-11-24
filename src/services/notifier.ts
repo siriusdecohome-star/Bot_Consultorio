@@ -37,12 +37,18 @@ export class WebOutbox {
 }
 
 export class ChannelNotifier implements Notifier {
-  constructor(private deps: { whatsapp?: WhatsAppSender | null; web?: WebOutbox | null; log?: (m: string) => void }) {}
+  constructor(private deps: {
+    whatsapp?: WhatsAppSender | null;
+    web?: WebOutbox | null;
+    /** Prefijo de la bandeja web: separa las sesiones del simulador de cada clínica. */
+    webPrefix?: string;
+    log?: (m: string) => void;
+  }) {}
 
   async send(channel: Channel, userId: string, msg: OutboundMessage) {
     const log = this.deps.log ?? ((m: string) => console.log(`[avisos] ${m}`));
     if (channel === "web" && this.deps.web) {
-      this.deps.web.push(userId, msg);
+      this.deps.web.push(`${this.deps.webPrefix ?? ""}${userId}`, msg);
       return "enviado" as const;
     }
     if (channel === "whatsapp" && this.deps.whatsapp) {

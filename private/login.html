@@ -21,8 +21,8 @@
   <div class="login">
     <form class="card" method="post" action="/panel/login">
       <h1><span class="dot"></span> Panel del consultorio</h1>
-      <p class="note">Acceso para el equipo de recepción. Demo con datos ficticios.</p>
-      <label>Usuario <input name="user" autocomplete="username" required /></label>
+      <p class="note">Acceso para el equipo del consultorio (admin o recepción). Demo con datos ficticios.</p>
+      <label>Correo <input name="email" type="email" autocomplete="username" placeholder="recepcion@sonrisaclara.demo.test" required /></label>
       <label>Contraseña <input name="password" type="password" autocomplete="current-password" required /></label>
       <p class="err" id="err"></p>
       <button class="btn" type="submit">Ingresar</button>
@@ -31,7 +31,7 @@
   <script>
     const e = new URLSearchParams(location.search).get("error");
     if (e) document.getElementById("err").textContent =
-      e === "intentos" ? "Demasiados intentos. Espere unos minutos." : "Usuario o contraseña incorrectos.";
+      e === "intentos" ? "Demasiados intentos. Espere unos minutos." : "Correo o contraseña incorrectos.";
   </script>
 </body>
 </html>

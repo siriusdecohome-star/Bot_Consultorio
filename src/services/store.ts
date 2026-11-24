@@ -85,19 +85,35 @@ export class SlotTakenError extends Error {
   }
 }
 
+export interface AppointmentFilter {
+  patientId?: string;
+  from?: string;
+  to?: string;
+  status?: AppointmentStatus[];
+}
+
+/**
+ * Persistencia de UNA clínica: todas las lecturas y escrituras quedan filtradas
+ * por `clinicId`. `forClinic()` devuelve la misma base vista desde otra clínica.
+ */
 export interface Store {
+  readonly clinicId: string;
+  forClinic(clinicId: string): Store;
+
   getOrCreatePatient(phone: string, channel: Channel, source?: string | null): Promise<Patient>;
   updatePatient(id: string, patch: Partial<Pick<Patient, "name" | "source">>): Promise<Patient>;
   getPatient(id: string): Promise<Patient | null>;
+  listPatients(): Promise<Patient[]>;
 
   getOrCreateConversation(patient: Patient, channel: Channel): Promise<Conversation>;
+  getConversation(id: string): Promise<Conversation | null>;
   saveConversation(c: Conversation): Promise<void>;
   listConversations(): Promise<Conversation[]>;
 
   createAppointment(a: Omit<Appointment, "id" | "createdAt">): Promise<Appointment>;
   updateAppointment(id: string, patch: Partial<Appointment>): Promise<Appointment>;
   getAppointment(id: string): Promise<Appointment | null>;
-  listAppointments(filter?: { patientId?: string; from?: string; to?: string; status?: AppointmentStatus[] }): Promise<Appointment[]>;
+  listAppointments(filter?: AppointmentFilter): Promise<Appointment[]>;
   deleteAppointment(id: string): Promise<void>;
 
   createHandoff(h: Omit<Handoff, "id" | "createdAt" | "status">): Promise<Handoff>;
@@ -111,97 +127,134 @@ export interface Store {
 let seq = 0;
 const id = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(36)}`;
 
-export class InMemoryStore implements Store {
-  /** El reloj es inyectable para que las pruebas con tiempo simulado fechen bien los registros. */
-  constructor(private clock: () => Date = () => new Date()) {}
-  private now = () => this.clock().toISOString();
+type Owned<T> = T & { clinicId: string };
 
-  patients = new Map<string, Patient>();
-  conversations = new Map<string, Conversation>();
-  appointments = new Map<string, Appointment>();
-  handoffs: Handoff[] = [];
-  metrics: TurnMetric[] = [];
+/** Datos compartidos por todas las vistas por clínica de la base en memoria. */
+interface MemoryData {
+  patients: Map<string, Owned<Patient>>;
+  conversations: Map<string, Owned<Conversation>>;
+  appointments: Map<string, Owned<Appointment>>;
+  handoffs: Array<Owned<Handoff>>;
+  metrics: Array<Owned<TurnMetric>>;
+}
+
+export const DEFAULT_CLINIC_ID = "sonrisa-clara";
+
+function strip<T>(x: Owned<T>): T {
+  const { clinicId: _c, ...rest } = x;
+  return rest as unknown as T;
+}
+
+/** Base en memoria (entorno de pruebas): mismo comportamiento que Supabase, incluido el filtro por clínica. */
+export class InMemoryStore implements Store {
+  private data: MemoryData;
+
+  /** El reloj es inyectable para que las pruebas con tiempo simulado fechen bien los registros. */
+  constructor(private clock: () => Date = () => new Date(), readonly clinicId = DEFAULT_CLINIC_ID, data?: MemoryData) {
+    this.data = data ?? { patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [] };
+  }
+  forClinic(clinicId: string): Store {
+    return new InMemoryStore(this.clock, clinicId, this.data);
+  }
+  private now = () => this.clock().toISOString();
+  private mine = <T>(x: Owned<T> | undefined): x is Owned<T> => !!x && x.clinicId === this.clinicId;
 
   async getOrCreatePatient(phone: string, channel: Channel, source: string | null = null) {
-    const found = [...this.patients.values()].find((p) => p.phone === phone);
-    if (found) return found;
-    const p: Patient = { id: id("pac"), phone, name: null, channel, source, createdAt: this.now() };
-    this.patients.set(p.id, p);
-    return p;
+    const found = [...this.data.patients.values()].find((p) => this.mine(p) && p.phone === phone);
+    if (found) return strip(found);
+    const p: Owned<Patient> = { id: id("pac"), phone, name: null, channel, source, createdAt: this.now(), clinicId: this.clinicId };
+    this.data.patients.set(p.id, p);
+    return strip(p);
   }
   async updatePatient(pid: string, patch: Partial<Pick<Patient, "name" | "source">>) {
-    const p = { ...this.patients.get(pid)!, ...patch };
-    this.patients.set(pid, p);
-    return p;
+    const cur = this.data.patients.get(pid);
+    if (!this.mine(cur)) throw new Error("paciente no encontrado");
+    const p = { ...cur, ...patch };
+    this.data.patients.set(pid, p);
+    return strip(p);
   }
   async getPatient(pid: string) {
-    return this.patients.get(pid) ?? null;
+    const p = this.data.patients.get(pid);
+    return this.mine(p) ? strip(p) : null;
+  }
+  async listPatients() {
+    return [...this.data.patients.values()].filter((p) => this.mine(p)).map((p) => strip(p));
   }
 
   async getOrCreateConversation(patient: Patient, channel: Channel) {
-    const found = [...this.conversations.values()].find((c) => c.patientId === patient.id && c.channel === channel);
-    if (found) return found;
-    const c: Conversation = {
+    const found = [...this.data.conversations.values()].find((c) => this.mine(c) && c.patientId === patient.id && c.channel === channel);
+    if (found) return structuredClone(strip(found));
+    const c: Owned<Conversation> = {
       id: id("conv"), patientId: patient.id, channel, llmState: [], llmProvider: "",
-      messages: [], privacyShown: false, handedOff: false, createdAt: this.now(), updatedAt: this.now(),
+      messages: [], privacyShown: false, handedOff: false, createdAt: this.now(), updatedAt: this.now(), clinicId: this.clinicId,
     };
-    this.conversations.set(c.id, c);
-    return c;
+    this.data.conversations.set(c.id, c);
+    return structuredClone(strip(c));
+  }
+  async getConversation(cid: string) {
+    const c = this.data.conversations.get(cid);
+    return this.mine(c) ? structuredClone(strip(c)) : null;
   }
   async saveConversation(c: Conversation) {
-    this.conversations.set(c.id, { ...c, updatedAt: this.now() });
+    if (!this.mine(this.data.conversations.get(c.id))) throw new Error("conversación no encontrada");
+    this.data.conversations.set(c.id, { ...structuredClone(c), updatedAt: this.now(), clinicId: this.clinicId });
   }
   async listConversations() {
-    return [...this.conversations.values()];
+    return [...this.data.conversations.values()].filter((c) => this.mine(c)).map((c) => structuredClone(strip(c)));
   }
 
   async createAppointment(a: Omit<Appointment, "id" | "createdAt">) {
     const active = (s: AppointmentStatus) => s === "confirmada" || s === "pendiente";
-    if (active(a.status) && [...this.appointments.values()].some((x) => active(x.status) && x.start === a.start)) {
-      throw new SlotTakenError(); // mismo comportamiento que el índice único de Supabase
+    // Mismo comportamiento que el índice único (clinic_id, start_at) de Supabase.
+    if (active(a.status) && [...this.data.appointments.values()].some((x) => this.mine(x) && active(x.status) && x.start === a.start)) {
+      throw new SlotTakenError();
     }
-    const ap: Appointment = { ...a, id: id("cita"), createdAt: this.now() };
-    this.appointments.set(ap.id, ap);
-    return ap;
+    const ap: Owned<Appointment> = { ...a, id: id("cita"), createdAt: this.now(), clinicId: this.clinicId };
+    this.data.appointments.set(ap.id, ap);
+    return strip(ap);
   }
   async updateAppointment(aid: string, patch: Partial<Appointment>) {
-    const ap = { ...this.appointments.get(aid)!, ...patch };
-    this.appointments.set(aid, ap);
-    return ap;
+    const cur = this.data.appointments.get(aid);
+    if (!this.mine(cur)) throw new Error("turno no encontrado");
+    const ap = { ...cur, ...patch, clinicId: this.clinicId };
+    this.data.appointments.set(aid, ap);
+    return strip(ap);
   }
   async getAppointment(aid: string) {
-    return this.appointments.get(aid) ?? null;
+    const a = this.data.appointments.get(aid);
+    return this.mine(a) ? strip(a) : null;
   }
-  async listAppointments(f: { patientId?: string; from?: string; to?: string; status?: AppointmentStatus[] } = {}) {
-    return [...this.appointments.values()]
+  async listAppointments(f: AppointmentFilter = {}) {
+    return [...this.data.appointments.values()]
+      .filter((a) => this.mine(a))
       .filter((a) => !f.patientId || a.patientId === f.patientId)
       .filter((a) => !f.from || a.start >= f.from)
       .filter((a) => !f.to || a.start < f.to)
       .filter((a) => !f.status || f.status.includes(a.status))
-      .sort((a, b) => a.start.localeCompare(b.start));
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .map((a) => strip(a));
   }
-
   async deleteAppointment(aid: string) {
-    this.appointments.delete(aid);
+    if (this.mine(this.data.appointments.get(aid))) this.data.appointments.delete(aid);
   }
 
   async createHandoff(h: Omit<Handoff, "id" | "createdAt" | "status">) {
-    const x: Handoff = { ...h, id: id("der"), status: "abierta", createdAt: this.now() };
-    this.handoffs.push(x);
-    return x;
+    const x: Owned<Handoff> = { ...h, id: id("der"), status: "abierta", createdAt: this.now(), clinicId: this.clinicId };
+    this.data.handoffs.push(x);
+    return strip(x);
   }
   async listHandoffs() {
-    return this.handoffs;
+    return this.data.handoffs.filter((h) => this.mine(h)).map((h) => strip(h));
   }
   async updateHandoff(hid: string, patch: Partial<Pick<Handoff, "status">>) {
-    const h = this.handoffs.find((x) => x.id === hid);
-    if (h) Object.assign(h, patch);
+    const h = this.data.handoffs.find((x) => x.id === hid);
+    if (this.mine(h)) Object.assign(h, patch);
   }
 
   async logMetric(m: TurnMetric) {
-    this.metrics.push(m);
+    this.data.metrics.push({ ...m, clinicId: this.clinicId });
   }
   async listMetrics() {
-    return this.metrics;
+    return this.data.metrics.filter((m) => this.mine(m)).map((m) => strip(m));
   }
 }

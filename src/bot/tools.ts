@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import type { ToolDef } from "../llm/types.js";
 import { Availability, type CalendarService, type Franja } from "../services/calendar.js";
 import { SlotTakenError, type Appointment, type Conversation, type Patient, type Store } from "../services/store.js";
-import { human, localKey, parseLocal, toLocal, type Clock } from "../services/time.js";
+import { human, localKey, parseLocal, slotMinutes, toLocal, type Clock } from "../services/time.js";
 
 /**
  * Herramientas que el modelo puede llamar. Toda acción real (consultar agenda,
@@ -133,7 +133,7 @@ const motivos: Record<string, string> = {
 
 export function makeExecutor(ctx: ToolContext) {
   const avail = new Availability(ctx.calendar, ctx.clock);
-  const slot = config.clinic.slotMinutes;
+  const slot = slotMinutes();
 
   async function suggestNear(start: DateTime) {
     const d = start.isValid ? start : toLocal(ctx.clock());

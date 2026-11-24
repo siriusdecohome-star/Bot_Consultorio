@@ -17,10 +17,13 @@ const STATUS = {
   reprogramada: ["Reprogramada", "muted"], asistio: ["Asistió", "ok"], ausente: ["Ausente", "bad"],
 };
 
-let state = { date: null, openConv: null };
+let state = { date: null, openConv: null, clinic: null };
+const ROLE = { admin: "Admin", recepcion: "Recepción" };
 
+/** Todas las llamadas llevan la clínica elegida (el servidor verifica que sea del usuario). */
 async function api(path, opts) {
-  const r = await fetch(`/api/panel${path}`, opts);
+  const sep = path.includes("?") ? "&" : "?";
+  const r = await fetch(`/api/panel${path}${state.clinic ? `${sep}clinic=${encodeURIComponent(state.clinic)}` : ""}`, opts);
   if (r.status === 401) { location.href = "/panel"; throw new Error("Sesión vencida"); }
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
   return r.json();
@@ -45,6 +48,8 @@ async function load() {
     return;
   }
   state.date ??= d.date;
+  $("#clinic-name").textContent = d.clinic.name;
+  document.title = `Panel · ${d.clinic.name}`;
   $("#date").value = d.date;
   $("#updated").textContent = `actualizado ${new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}`;
   renderKpis(d);
@@ -52,6 +57,7 @@ async function load() {
   renderConvs(d.conversations);
   renderHandoffs(d.handoffs);
   renderLeads(d.leads);
+  state.role = d.role;
   renderMetrics(d.metrics);
   renderTests(d.tests);
 }
@@ -63,9 +69,12 @@ function renderKpis({ kpis: k, metrics: m }) {
     ["Cancelaciones del día", k.cancelledToday, "horarios liberados"],
     ["Derivaciones abiertas", k.openHandoffs, "esperan a una persona", k.openHandoffs > 0],
     ["Leads sin turno", k.leadsWithoutAppointment, "de la promo"],
+  ];
+  // Tiempos y costos: solo para el admin.
+  if (m) items.push(
     ["Respuesta (mediana)", m.turns ? ms(m.medianLatencyMs) : "—", m.turns ? `p95 ${ms(m.p95LatencyMs)}` : "sin datos"],
     ["Costo por conversación", m.turns ? usd(m.avgCostPerConversation) : "—", m.provider],
-  ];
+  );
   $("#kpis").innerHTML = items.map(([l, v, s, alert]) =>
     `<div class="kpi${alert ? " alert" : ""}"><span>${l}</span><strong>${esc(v)}</strong><small>${esc(s)}</small></div>`).join("");
 }
@@ -133,6 +142,8 @@ function renderLeads(list) {
 }
 
 function renderMetrics(m) {
+  sectionOf("#metrics").hidden = !m;
+  if (!m) return;
   $("#m-provider").textContent = m.provider;
   const items = [
     ["Mensajes respondidos", m.turns],
@@ -144,6 +155,7 @@ function renderMetrics(m) {
 }
 
 function renderTests(runs) {
+  sectionOf("#tests").hidden = state.role !== "admin";
   if (!runs?.length) {
     $("#tests").innerHTML = `<p class="empty">Todavía no se corrieron. Ejecute <code>npm run test:cases</code>.</p>`;
     return;
@@ -220,5 +232,34 @@ $("#reply").addEventListener("submit", async (e) => {
 $("#date").addEventListener("change", (e) => { state.date = e.target.value; load(); });
 $("#today").addEventListener("click", () => { state.date = null; load(); });
 
-load();
-setInterval(() => !state.openConv && load(), 15000);
+/** Sección (tarjeta) que contiene un elemento: para ocultar las que no corresponden al rol. */
+function sectionOf(sel) {
+  return $(sel).closest("section, .card") ?? $(sel);
+}
+
+/** Usuario y clínicas: el selector aparece solo si trabaja en más de una. */
+async function init() {
+  const me = await api("/me");
+  let saved = null;
+  try { saved = localStorage.getItem("panel-clinic"); } catch {}
+  state.clinic = me.clinics.some((c) => c.id === saved) ? saved : me.clinics[0]?.id ?? null;
+  const sel = $("#clinic");
+  sel.innerHTML = me.clinics.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  sel.value = state.clinic ?? "";
+  $("#clinic-pick").hidden = me.clinics.length < 2;
+  const showWho = () => {
+    const role = me.clinics.find((c) => c.id === state.clinic)?.role;
+    $("#who").textContent = `${me.email} · ${ROLE[role] ?? ""}`;
+  };
+  showWho();
+  sel.addEventListener("change", () => {
+    state.clinic = sel.value;
+    try { localStorage.setItem("panel-clinic", state.clinic); } catch {}
+    showWho();
+    state.openConv = null;
+    load();
+  });
+  await load();
+  setInterval(() => !state.openConv && load(), 15000);
+}
+init().catch((e) => ($("#updated").textContent = `error: ${e.message}`));

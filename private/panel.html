@@ -14,10 +14,12 @@
       <span class="dot"></span>
       <div>
         <h1>Panel del consultorio</h1>
-        <p>Clínica Dental Sonrisa Clara · datos ficticios · <span id="updated">cargando…</span></p>
+        <p><span id="clinic-name">…</span> · datos ficticios · <span id="updated">cargando…</span></p>
       </div>
     </div>
     <div class="actions">
+      <label class="date" id="clinic-pick" hidden>Clínica <select id="clinic"></select></label>
+      <span class="who" id="who"></span>
       <label class="date">Día <input type="date" id="date" /></label>
       <button id="today" class="btn">Hoy</button>
       <a class="btn ghost" href="/" target="_blank" rel="noopener">Abrir simulador ↗</a>

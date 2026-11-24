@@ -1,4 +1,6 @@
-import { privacyLine, privacyNotice } from "../data/knowledge.js";
+import { kb, privacyLine, privacyNotice } from "../data/knowledge.js";
+import { withClinic } from "../clinics/context.js";
+import type { ClinicProfile } from "../clinics/types.js";
 import { config } from "../config.js";
 import type { LlmProvider, ToolCallLog } from "../llm/types.js";
 import type { CalendarService } from "../services/calendar.js";
@@ -33,14 +35,23 @@ export interface BotReply {
  * solo traducen su formato a IncomingMessage y envían los mensajes devueltos.
  */
 export class BotEngine {
-  private system = buildSystemPrompt();
-
   constructor(
     private provider: LlmProvider,
     private store: Store,
     private calendar: CalendarService,
     private clock: Clock = systemClock,
+    /** Clínica que atiende este motor (multiempresa). Sin clínica: la clínica por defecto. */
+    readonly clinic?: ClinicProfile,
   ) {}
+
+  /**
+   * Prompt de sistema de la clínica. Se arma en cada turno a partir del conocimiento
+   * actual: si el consultorio edita precios u horarios, el cambio rige desde el
+   * siguiente mensaje. Mientras no cambie, el texto es idéntico y la caché se aprovecha.
+   */
+  private get system(): string {
+    return buildSystemPrompt(kb());
+  }
 
   get providerName() {
     const base = `${this.provider.name}:${this.provider.model}`;
@@ -67,6 +78,10 @@ export class BotEngine {
   }
 
   async handle(msg: IncomingMessage): Promise<BotReply> {
+    return withClinic(this.clinic, () => this.handleInClinic(msg));
+  }
+
+  private async handleInClinic(msg: IncomingMessage): Promise<BotReply> {
     let patient = await this.store.getOrCreatePatient(msg.userId, msg.channel, msg.source ?? null);
     const conv = await this.store.getOrCreateConversation(patient, msg.channel);
     const at = this.clock().toISOString();
@@ -76,7 +91,7 @@ export class BotEngine {
     // Primer mensaje de la conversación: el asistente saluda, se presenta y menciona
     // la privacidad en una línea (modo "inline"). "separate" = mensaje aparte; "off" = sin aviso.
     const firstTurn = !conv.privacyShown;
-    if (firstTurn && config.privacyMode === "separate") out.push(privacyNotice);
+    if (firstTurn && config.privacyMode === "separate") out.push(privacyNotice());
     conv.privacyShown = true;
 
     // Conversación tomada por una persona: el bot no interviene.

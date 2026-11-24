@@ -60,6 +60,8 @@ export const config = {
   supabase: {
     url: env("SUPABASE_URL"),
     secretKey: env("SUPABASE_SECRET_KEY"),
+    /** Clave pública: solo la usa el login del panel (Supabase Auth); las consultas van con el token del usuario. */
+    publishableKey: env("SUPABASE_PUBLISHABLE_KEY"),
   },
 
   google: {
@@ -93,9 +95,8 @@ export const config = {
   },
 
   panel: {
-    user: env("PANEL_USER", "recepcion"),
-    /** Sin contraseña, el panel solo abre desde esta PC (no por el túnel) */
-    password: env("PANEL_PASSWORD"),
+    /** Clave para firmar la cookie de sesión del panel (la genera npm run seed:users). */
+    sessionSecret: env("PANEL_SESSION_SECRET"),
   },
 
   port: num("PORT", 3000),

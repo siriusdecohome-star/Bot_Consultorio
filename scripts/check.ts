@@ -29,8 +29,9 @@ if (!config.supabase.url && !config.supabase.secretKey) {
 } else {
   try {
     const { SupabaseStore } = await import("../src/services/supabaseStore.js");
-    const n = await new SupabaseStore(config.supabase.url, config.supabase.secretKey).ping();
-    ok(`Supabase: conectado, tabla patients con ${n} registros`);
+    const n = await SupabaseStore.withSecretKey(config.supabase.url, config.supabase.secretKey).ping();
+    ok(`Supabase: conectado, ${n} clínica(s) cargada(s)${n ? "" : " — ejecutá npm run seed"}`);
+    if (!config.supabase.publishableKey) { bad("Supabase: falta SUPABASE_PUBLISHABLE_KEY (la usa el login del panel)"); failures++; }
   } catch (e) {
     const msg = (e as Error).message;
     bad(`Supabase: ${msg}`);

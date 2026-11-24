@@ -42,7 +42,8 @@ export class GoogleCalendarService implements CalendarService {
         const start = e.start?.dateTime ?? (e.start?.date ? `${e.start.date}T00:00:00` : null);
         const end = e.end?.dateTime ?? (e.end?.date ? `${e.end.date}T00:00:00` : null);
         if (!start || !end || !e.id) continue;
-        out.push({ id: e.id, start, end, summary: e.summary ?? "(ocupado)", description: e.description ?? undefined });
+        const priv = (e.extendedProperties?.private ?? {}) as Record<string, string>;
+        out.push({ id: e.id, start, end, summary: e.summary ?? "(ocupado)", description: e.description ?? undefined, clinic: priv.clinic, tags: priv });
       }
       pageToken = res.data.nextPageToken ?? undefined;
     } while (pageToken);
@@ -57,8 +58,9 @@ export class GoogleCalendarService implements CalendarService {
         description: ev.description,
         start: { dateTime: ev.start, timeZone: TZ() },
         end: { dateTime: ev.end, timeZone: TZ() },
-        colorId: tags.demo === "seed" ? "8" : "10", // gris = ejemplo, verde = reservado por el bot
-        extendedProperties: { private: { origen: "bot-consultorio", ...tags } },
+        // gris = ejemplo; el resto, el color de la clínica (verde la A, azul la B)
+        colorId: tags.color ?? (tags.demo === "seed" ? "8" : "10"),
+        extendedProperties: { private: { origen: "bot-consultorio", ...Object.fromEntries(Object.entries(tags).filter(([k]) => k !== "color")) } },
       },
     });
     return { ...ev, id: res.data.id! };

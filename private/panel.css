@@ -21,6 +21,9 @@ h1 { font-size: 19px; margin: 0; font-weight: 650; }
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .date { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
 .date input { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; color-scheme: dark; }
+.date select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; color-scheme: dark; }
+.who { color: var(--muted); font-size: 12px; }
+[hidden] { display: none !important; }
 .btn { background: var(--accent); color: #04301a; border: 0; border-radius: 10px; padding: 7px 14px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
 .btn.ghost { background: var(--panel); color: var(--text); border: 1px solid var(--line); font-weight: 500; }
 .btn.small { padding: 4px 10px; font-size: 12.5px; }

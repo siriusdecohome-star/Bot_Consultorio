@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { clinic } from "../data/knowledge.js";
+import { kb } from "../data/knowledge.js";
 import { TZ } from "../services/time.js";
 import { emptyUsage, type LlmProvider, type ToolCallLog, type TurnInput, type TurnResult } from "./types.js";
 
@@ -65,7 +65,7 @@ function franja(t: string): "manana" | "tarde" | "cualquiera" {
 }
 
 function treatmentOf(t: string): string | undefined {
-  if (has(t, "promo", "promocion")) return "Limpieza + control (Promo Sonrisa Noviembre)";
+  if (has(t, "promo", "promocion")) return `Promo: ${kb().promo.name}`;
   if (has(t, "limpieza")) return "Limpieza dental";
   if (has(t, "blanque")) return "Blanqueamiento (consulta previa)";
   if (has(t, "caries", "arreglo")) return "Arreglo de caries";
@@ -121,7 +121,7 @@ export class MockProvider implements LlmProvider {
       const d = DateTime.fromISO(key, { zone: TZ() }).setLocale("es");
       const head = free.length
         ? `Las *${d.toFormat("HH:mm")}* del ${d.toFormat("cccc dd/MM")} no están disponibles.`
-        : `El *${d.toFormat("cccc dd/MM")}* no tengo turnos: atendemos ${clinic.hoursText.charAt(0).toLowerCase()}${clinic.hoursText.slice(1)}`;
+        : `El *${d.toFormat("cccc dd/MM")}* no tengo turnos: atendemos ${kb().hoursText.charAt(0).toLowerCase()}${kb().hoursText.slice(1)}`;
       if (free.length) return offer(d, d, "cualquiera", `${head} {dia} tengo libres:`);
       return offer(d.plus({ days: 1 }), d.plus({ days: 5 }), "cualquiera", `${head}\n\n{dia} tengo libres:`);
     };
@@ -220,15 +220,15 @@ export class MockProvider implements LlmProvider {
         const tr = treatmentOf(t);
         if (tr) mem.treatment = tr;
         if (has(t, "promo") || !tr) {
-          return `¡Qué bueno que le interese! 🦷 *${clinic.promo.name}*: limpieza dental + consulta de control por *USD 29* (precio normal USD 65). Válida para pacientes nuevos hasta el 31/12.\n\n¿Le busco un turno? Dígame qué día le queda mejor.`;
+          return `¡Qué bueno que le interese! 🦷 *${kb().promo.name}*: ${kb().promo.detail}\n\n¿Le busco un turno? Dígame qué día le queda mejor.`;
         }
-        const x = clinic.treatments.find((k) => norm(k.name).includes(norm(tr).split(" ")[0]!));
-        return x ? `*${x.name}*: ${x.price} (${x.duration}). ${x.notes}\n\n¿Quiere que le busque un turno?` : `${clinic.promo.detail}\n\n¿Quiere que le busque un turno?`;
+        const x = kb().treatments.find((k) => norm(k.name).includes(norm(tr).split(" ")[0]!));
+        return x ? `*${x.name}*: ${x.price} (${x.duration}). ${x.notes}\n\n¿Quiere que le busque un turno?` : `${kb().promo.detail}\n\n¿Quiere que le busque un turno?`;
       }
-      if (has(t, "horario", "atienden", "abren", "abierto")) return `Atendemos ${clinic.hoursText.charAt(0).toLowerCase()}${clinic.hoursText.slice(1)}\n\n¿Le busco un turno?`;
-      if (has(t, "donde", "direccion", "ubicacion", "quedan")) return `📍 Estamos en ${clinic.address}. ${clinic.reference}\n\n¿Le busco un turno?`;
-      if (has(t, "obra social", "prepaga", "cobertura")) return clinic.insurance;
-      if (has(t, "pago", "tarjeta", "cuotas", "efectivo")) return clinic.payments;
+      if (has(t, "horario", "atienden", "abren", "abierto")) return `Atendemos ${kb().hoursText.charAt(0).toLowerCase()}${kb().hoursText.slice(1)}\n\n¿Le busco un turno?`;
+      if (has(t, "donde", "direccion", "ubicacion", "quedan")) return `📍 Estamos en ${kb().address}. ${kb().reference}\n\n¿Le busco un turno?`;
+      if (has(t, "obra social", "prepaga", "cobertura")) return kb().insurance;
+      if (has(t, "pago", "tarjeta", "cuotas", "efectivo")) return kb().payments;
       if (has(t, "hola", "buen", "info", "informacion")) return GREETING_ONLY;
       if (has(t, "gracias", "listo", "perfecto", "dale", "ok")) return "¡Gracias a usted! Si necesita algo más, aquí estoy. 😊";
       return "Disculpe, no estoy seguro de haber entendido. ¿Quiere *sacar un turno*, consultar *precios u horarios*, o *hablar con una persona*?";
@@ -239,7 +239,7 @@ export class MockProvider implements LlmProvider {
     if (input.turnContext.includes("PRIMER MENSAJE")) {
       const profile = input.turnContext.match(/Nombre de perfil de WhatsApp \(no confirmado\): (.+)\./)?.[1];
       const first = profile?.trim().split(/\s+/)[0];
-      const hello = `¡Hola${first ? `, ${first}` : ""}! 👋 Gracias por escribir a *${clinic.name}*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.`;
+      const hello = `¡Hola${first ? `, ${first}` : ""}! 👋 Gracias por escribir a *${kb().name}*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.`;
       const body = reply === GREETING_ONLY ? "¿En qué puedo ayudarle hoy?" : reply;
       const privacy = input.turnContext.match(/línea exacta: «(.+)»/)?.[1];
       text = [hello, body, privacy].filter(Boolean).join("\n\n");
@@ -268,7 +268,7 @@ export class MockProvider implements LlmProvider {
       "",
       `📅 *${cap(r.cita.cuando)}*`,
       `🦷 ${r.cita.tratamiento}`,
-      `📍 ${clinic.address.replace(" (dirección ficticia)", "")}`,
+      `📍 ${kb().address.replace(" (dirección ficticia)", "")}`,
       "",
       "Le enviaré un recordatorio el día anterior. Si necesita cambiarlo, escríbame cuando quiera.",
     ].join("\n");

@@ -4,7 +4,9 @@ import { InMemoryCalendar, type CalendarService } from "./calendar.js";
 import { InMemoryStore, type Store } from "./store.js";
 
 export interface Services {
+  /** Base vista desde la clínica principal; `store.forClinic(id)` da la vista de otra clínica. */
   store: Store;
+  /** Calendario compartido, sin filtrar: cada clínica lo usa a través de ClinicCalendar. */
   calendar: CalendarService;
   storeKind: "supabase" | "memoria";
   calendarKind: "google" | "memoria";
@@ -26,7 +28,7 @@ export async function createServices(opts: { forceMemory?: boolean } = {}): Prom
 
   if (!opts.forceMemory && hasSupabase()) {
     const { SupabaseStore } = await import("./supabaseStore.js");
-    store = new SupabaseStore(config.supabase.url, config.supabase.secretKey);
+    store = SupabaseStore.withSecretKey(config.supabase.url, config.supabase.secretKey);
     storeKind = "supabase";
   }
   if (!opts.forceMemory && hasGoogle()) {

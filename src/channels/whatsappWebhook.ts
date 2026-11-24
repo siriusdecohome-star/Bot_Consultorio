@@ -16,6 +16,8 @@ export interface InboundWhatsApp {
   type: string;
   /** Si viene de un link de promo con texto predefinido, p. ej. "#promo-noviembre" */
   source: string | null;
+  /** Número del consultorio que recibió el mensaje (multiempresa: define la clínica). */
+  phoneNumberId: string | null;
 }
 
 /** Valida la firma X-Hub-Signature-256: confirma que el aviso lo mandó Meta y no un tercero. */
@@ -34,6 +36,7 @@ export function parseWebhook(body: any): InboundWhatsApp[] {
     for (const change of entry?.changes ?? []) {
       const v = change?.value;
       if (change?.field !== "messages" || !v?.messages) continue;
+      const phoneNumberId: string | null = v.metadata?.phone_number_id ?? null;
       const names = new Map<string, string>((v.contacts ?? []).map((c: any) => [c.wa_id, c.profile?.name]));
       for (const m of v.messages) {
         let text: string | null = null;
@@ -43,16 +46,28 @@ export function parseWebhook(body: any): InboundWhatsApp[] {
           text = m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? null;
         }
         const tag = text?.match(/#([a-z0-9-]{3,40})/i)?.[1] ?? null;
-        out.push({ id: m.id, from: m.from, name: names.get(m.from) ?? null, text, type: m.type, source: tag });
+        out.push({ id: m.id, from: m.from, name: names.get(m.from) ?? null, text, type: m.type, source: tag, phoneNumberId });
       }
     }
   }
   return out;
 }
 
-export interface WebhookOptions {
+/** Motor y cliente de envío de la clínica dueña de un número. */
+export interface WhatsAppTarget {
   bot: BotEngine;
   sender: WhatsAppSender;
+}
+
+export interface WebhookOptions {
+  /**
+   * Multiempresa: devuelve la clínica según el número que recibió el mensaje.
+   * null = número desconocido (se ignora el mensaje).
+   */
+  route?: (phoneNumberId: string | null) => WhatsAppTarget | null;
+  /** Una sola clínica (pruebas): se usa para cualquier número. */
+  bot?: BotEngine;
+  sender?: WhatsAppSender;
   verifyToken: string;
   appSecret: string;
   log?: (msg: string) => void;
@@ -62,6 +77,8 @@ type RawRequest = Request & { rawBody?: Buffer };
 
 export function createWhatsAppRouter(opts: WebhookOptions): Router {
   const log = opts.log ?? ((m) => console.log(`[whatsapp] ${m}`));
+  const resolve = (phoneNumberId: string | null): WhatsAppTarget | null =>
+    opts.route ? opts.route(phoneNumberId) : opts.bot && opts.sender ? { bot: opts.bot, sender: opts.sender } : null;
   const router = Router();
 
   // Meta reintenta los avisos si no respondemos rápido: evitamos procesar dos veces el mismo mensaje.
@@ -105,22 +122,27 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
 
     for (const m of parseWebhook(req.body)) {
       if (isDuplicate(m.id)) continue;
-      void enqueue(m.from, () => handle(m)).catch((err) => log(`error procesando ${m.id}: ${(err as Error).message}`));
+      const target = resolve(m.phoneNumberId);
+      if (!target) {
+        log(`mensaje para un número sin clínica asignada (${m.phoneNumberId ?? "?"}): ignorado`);
+        continue;
+      }
+      void enqueue(`${m.phoneNumberId}:${m.from}`, () => handle(m, target)).catch((err) => log(`error procesando ${m.id}: ${(err as Error).message}`));
     }
   });
 
-  async function handle(m: InboundWhatsApp) {
-    await opts.sender.markReadAndTyping(m.id);
+  async function handle(m: InboundWhatsApp, { bot, sender }: WhatsAppTarget) {
+    await sender.markReadAndTyping(m.id);
     if (m.text === null) {
-      await opts.sender.sendText(m.from, "Por ahora solo puedo leer mensajes de texto. ¿Me escribe su consulta, por favor? 🙏");
+      await sender.sendText(m.from, "Por ahora solo puedo leer mensajes de texto. ¿Me escribe su consulta, por favor? 🙏");
       return;
     }
     log(`← ${mask(m.from)}: ${m.text.slice(0, 80)}`);
-    const reply = await opts.bot.handle({
+    const reply = await bot.handle({
       channel: "whatsapp", userId: `+${m.from}`, text: m.text, source: m.source, profileName: m.name,
     });
     for (const text of reply.messages) {
-      await opts.sender.sendText(m.from, text);
+      await sender.sendText(m.from, text);
     }
     const ms = reply.metric ? `${reply.metric.latencyMs} ms` : "";
     log(`→ ${mask(m.from)}: ${reply.messages.length} mensaje(s) ${ms}`);

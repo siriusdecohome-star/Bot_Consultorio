@@ -1,9 +1,11 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
-import { clinic } from "../data/knowledge.js";
+import { kb } from "../data/knowledge.js";
 import type { Notifier, OutboundMessage } from "../services/notifier.js";
 import type { Appointment, Conversation, Store } from "../services/store.js";
 import { toLocal, type Clock } from "../services/time.js";
+import { withClinic } from "../clinics/context.js";
+import type { ClinicProfile } from "../clinics/types.js";
 
 export type ReminderKind = "reminder24" | "reminder2";
 
@@ -16,7 +18,7 @@ export interface SweepResult {
 }
 
 const firstName = (n: string) => n.replace(/\s*\(demo\)\s*/i, "").trim().split(/\s+/)[0] ?? "";
-const address = clinic.address.replace(" (dirección ficticia)", "");
+const address = () => kb().address.replace(" (dirección ficticia)", "");
 
 /** Texto del recordatorio. «mañana» / «hoy» según la fecha, para que suene natural. */
 export function reminderMessage(a: Appointment, kind: ReminderKind, now: DateTime): OutboundMessage {
@@ -28,15 +30,15 @@ export function reminderMessage(a: Appointment, kind: ReminderKind, now: DateTim
 
   if (kind === "reminder24") {
     return {
-      text: `⏰ *Recordatorio de turno*\n\nHola, ${name}. Le recuerdo su turno de *${when}* en ${clinic.name}.\n🦷 ${a.treatment}\n📍 ${address}\n\n¿Nos confirma su asistencia?`,
+      text: `⏰ *Recordatorio de turno*\n\nHola, ${name}. Le recuerdo su turno de *${when}* en ${kb().name}.\n🦷 ${a.treatment}\n📍 ${address()}\n\n¿Nos confirma su asistencia?`,
       buttons: ["✅ Confirmo", "📅 Cambiar horario", "❌ Cancelar"],
       template: { name: config.whatsapp.templateReminder, params },
     };
   }
   return {
     text: a.confirmedByPatient
-      ? `👋 Hola, ${name}. Le esperamos *${when}*.\n📍 ${address}\n\nSi surge algo, avíseme por aquí.`
-      : `👋 Hola, ${name}. Su turno es *${when}*.\n📍 ${address}\n\n¿Puede asistir?`,
+      ? `👋 Hola, ${name}. Le esperamos *${when}*.\n📍 ${address()}\n\nSi surge algo, avíseme por aquí.`
+      : `👋 Hola, ${name}. Su turno es *${when}*.\n📍 ${address()}\n\n¿Puede asistir?`,
     buttons: a.confirmedByPatient ? undefined : ["✅ Confirmo", "❌ Cancelar"],
     template: { name: config.whatsapp.templateReminder, params },
   };
@@ -45,7 +47,7 @@ export function reminderMessage(a: Appointment, kind: ReminderKind, now: DateTim
 export function followupMessage(name: string | null): OutboundMessage {
   const n = name ? firstName(name) : "";
   return {
-    text: `Hola${n ? `, ${n}` : ""} 👋 Le escribo de ${clinic.name}. Hace poco consultó por la *${clinic.promo.name}* (limpieza + control a *USD 29*).\n\nTodavía quedan turnos esta semana. ¿Quiere que le busque uno?`,
+    text: `Hola${n ? `, ${n}` : ""} 👋 Le escribo de ${kb().name}. Hace poco consultó por la *${kb().promo.name}*: ${kb().promo.detail.split(". ")[0]}.\n\nTodavía quedan turnos esta semana. ¿Quiere que le busque uno?`,
     buttons: ["📅 Sí, buscar turno", "Más adelante"],
     template: { name: config.whatsapp.templateFollowup, params: [n || "¡hola"] },
   };
@@ -58,9 +60,13 @@ export function followupMessage(name: string | null): OutboundMessage {
 export class ReminderService {
   private failedAt = new Map<string, number>();
 
-  constructor(private store: Store, private notifier: Notifier, private clock: Clock) {}
+  constructor(private store: Store, private notifier: Notifier, private clock: Clock, readonly clinic?: ClinicProfile) {}
 
-  async sweep(): Promise<SweepResult> {
+  sweep(): Promise<SweepResult> {
+    return withClinic(this.clinic, () => this.sweepInClinic());
+  }
+
+  private async sweepInClinic(): Promise<SweepResult> {
     const res: SweepResult = { reminder24: 0, reminder2: 0, followups: 0, skipped: 0, errors: [] };
     const now = toLocal(this.clock());
     const upcoming = await this.store.listAppointments({
@@ -107,10 +113,17 @@ export class ReminderService {
   }
 
   /** Envía un recordatorio ya mismo (para la demo y el video). */
-  async remindNow(appointmentId: string, kind: ReminderKind = "reminder24"): Promise<OutboundMessage | null> {
-    const a = await this.store.getAppointment(appointmentId);
-    if (!a || !["confirmada", "pendiente"].includes(a.status)) return null;
-    return this.send(a, kind, toLocal(this.clock()));
+  remindNow(appointmentId: string, kind: ReminderKind = "reminder24"): Promise<OutboundMessage | null> {
+    return withClinic(this.clinic, async () => {
+      const a = await this.store.getAppointment(appointmentId);
+      if (!a || !["confirmada", "pendiente"].includes(a.status)) return null;
+      return this.send(a, kind, toLocal(this.clock()));
+    });
+  }
+
+  /** Envía ya el seguimiento de la promo a una conversación (para la demo). */
+  followupNow(c: Conversation, channel: Conversation["channel"], userId: string, name: string | null): Promise<void> {
+    return withClinic(this.clinic, () => this.sendFollowup(c, channel, userId, name));
   }
 
   private async send(a: Appointment, kind: ReminderKind, now: DateTime): Promise<OutboundMessage> {

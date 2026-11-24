@@ -7,6 +7,10 @@ const input = $("#input");
 const sendBtn = $("#send");
 const params = new URLSearchParams(location.search);
 const source = params.get("source") ?? "promo-noviembre";
+// Multiempresa: la clínica va en la URL (?clinica=altamira); sin indicar, la principal.
+const clinicId = params.get("clinica") ?? "";
+/** Agrega la clínica elegida a una ruta de la API. */
+const api = (url) => (clinicId ? `${url}${url.includes("?") ? "&" : "?"}clinic=${encodeURIComponent(clinicId)}` : url);
 
 const state = {
   sessionId: null,
@@ -82,7 +86,7 @@ function bubbleWithButtons(text, buttons) {
 async function pollOutbox() {
   if (!state.sessionId || state.busy) return;
   try {
-    const r = await fetch(`/api/outbox?sessionId=${encodeURIComponent(state.sessionId)}`);
+    const r = await fetch(api(`/api/outbox?sessionId=${encodeURIComponent(state.sessionId)}`));
     const { messages } = await r.json();
     for (const m of messages ?? []) {
       setTyping(true);
@@ -95,7 +99,7 @@ async function pollOutbox() {
 }
 
 async function demo(path, okMsg) {
-  const r = await fetch(path, {
+  const r = await fetch(api(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionId: state.sessionId }),
@@ -146,7 +150,7 @@ async function deliver(text, out) {
   setTyping(true);
   const t0 = performance.now();
   try {
-    const res = await fetch("/api/chat", {
+    const res = await fetch(api("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: state.sessionId, text, source }),
@@ -232,7 +236,7 @@ async function loadAgenda({ announce = false, mark = null } = {}) {
   const url = state.weekFrom ? `/api/agenda?from=${state.weekFrom}` : "/api/agenda";
   let data;
   try {
-    data = await (await fetch(url)).json();
+    data = await (await fetch(api(url))).json();
   } catch {
     return;
   }
@@ -340,9 +344,17 @@ $("#clock").textContent = hhmm();
 // ---------- Inicio ----------
 (async () => {
   try {
-    const cfg = await (await fetch("/api/config")).json();
+    const cfg = await (await fetch(api("/api/config"))).json();
     state.provider = cfg.provider;
-    $("#wa-name").textContent = cfg.clinic.replace("Clínica Dental ", "");
+    $("#wa-name").textContent = cfg.clinic.replace(/^(Clínica Dental|Centro Odontológico) /, "");
+    document.title = `${cfg.clinic} · Asistente de turnos`;
+    const sel = $("#clinic-sel");
+    sel.innerHTML = cfg.clinics.map((c) => `<option value="${esc(c.id)}"${c.id === cfg.clinicId ? " selected" : ""}>${esc(c.name)}${c.whatsapp ? " · WhatsApp" : ""}</option>`).join("");
+    sel.addEventListener("change", () => {
+      const p = new URLSearchParams(location.search);
+      p.set("clinica", sel.value);
+      location.search = p.toString();
+    });
     const cal = cfg.calendar === "google" ? "Google Calendar" : "agenda en memoria";
     $("#agenda-source").innerHTML = `<span class="live-dot"></span> ${cal} · se actualiza con cada reserva`;
     $("#subtitle").textContent = `Demo con datos ficticios · IA: ${cfg.provider} · base: ${cfg.store}`;
