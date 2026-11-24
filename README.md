@@ -26,6 +26,16 @@ Chat con aspecto de WhatsApp dentro de un marco de celular, más la agenda de la
 - **Origen del lead:** `?source=promo-noviembre` (valor por defecto) queda guardado en el paciente.
 - **Límite de uso:** 40 mensajes cada 10 minutos por IP (`WEB_MAX_MSGS_PER_10MIN`), para cuidar el saldo de la API si se comparte el link.
 
+## WhatsApp Cloud API (etapa 4)
+
+Seguí [docs/guia-meta-whatsapp.md](docs/guia-meta-whatsapp.md): app en Meta for Developers, número de prueba, tu WhatsApp como destinatario, túnel HTTPS y webhook en `/webhook/whatsapp`.
+
+```powershell
+npm run test:whatsapp   # prueba el canal con avisos simulados y firmados (sin llamar a Meta)
+```
+
+El webhook valida la firma `X-Hub-Signature-256`, responde 200 al instante, ignora avisos repetidos y procesa los mensajes de cada paciente en orden.
+
 ## Usar IA real
 
 1. Copiar `.env.example` a `.env`.

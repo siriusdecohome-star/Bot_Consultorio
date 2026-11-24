@@ -21,8 +21,24 @@ if (services.calendarKind === "memoria") await seedCalendar(services.calendar, s
 const bot = new BotEngine(provider, services.store, services.calendar);
 
 const app = express();
-app.use(express.json({ limit: "20kb" }));
+// Se guarda el cuerpo crudo: la firma de Meta se calcula sobre los bytes exactos recibidos.
+app.use(express.json({
+  limit: "1mb",
+  verify: (req, _res, buf) => { (req as unknown as { rawBody: Buffer }).rawBody = buf; },
+}));
 app.use(express.static(path.join(ROOT, "public")));
+
+// --- Canal WhatsApp (etapa 4): se activa si el .env tiene token e id del número ---
+const wa = config.whatsapp;
+let whatsappStatus = "desactivado (faltan WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID)";
+if (wa.token && wa.phoneNumberId) {
+  const { WhatsAppCloudClient } = await import("./channels/whatsappClient.js");
+  const { createWhatsAppRouter } = await import("./channels/whatsappWebhook.js");
+  app.use("/webhook/whatsapp", createWhatsAppRouter({
+    bot, sender: new WhatsAppCloudClient(), verifyToken: wa.verifyToken, appSecret: wa.appSecret,
+  }));
+  whatsappStatus = `activo en /webhook/whatsapp${wa.appSecret ? "" : " (⚠ sin WHATSAPP_APP_SECRET: no se valida la firma)"}`;
+}
 
 // --- Límite de uso por IP: protege el saldo de la API si se comparte la demo en público ---
 const WINDOW_MS = 10 * 60 * 1000;
@@ -58,6 +74,7 @@ app.post("/api/chat", async (req, res) => {
     return res.status(400).json({ error: "Sesión inválida" });
   }
   if (typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "Mensaje vacío" });
+  if (JSON.stringify(req.body).length > 20_000) return res.status(413).json({ error: "Pedido demasiado grande" });
   if (text.length > 600) return res.status(400).json({ error: "El mensaje es demasiado largo (máx. 600 caracteres)." });
   if (!allowed(req.ip ?? "?")) {
     return res.status(429).json({ error: "Demasiados mensajes seguidos. Espere unos minutos y vuelva a intentar." });
@@ -129,4 +146,5 @@ app.get("/api/agenda", async (req, res) => {
 app.listen(config.port, () => {
   console.log(`Simulador listo en http://localhost:${config.port}`);
   console.log(`IA: ${bot.providerName} · base: ${services.storeKind} · agenda: ${services.calendarKind} · zona: ${TZ()}`);
+  console.log(`WhatsApp: ${whatsappStatus}`);
 });

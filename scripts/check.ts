@@ -58,5 +58,26 @@ if (!config.google.calendarId) {
   }
 }
 
+// --- WhatsApp Cloud API ---
+const wa = config.whatsapp;
+if (!wa.token && !wa.phoneNumberId) {
+  skip("WhatsApp: sin configurar → solo funciona el simulador web");
+} else if (!wa.token || !wa.phoneNumberId) {
+  bad("WhatsApp: falta WHATSAPP_TOKEN o WHATSAPP_PHONE_NUMBER_ID"); failures++;
+} else {
+  try {
+    const { WhatsAppCloudClient } = await import("../src/channels/whatsappClient.js");
+    const n = await new WhatsAppCloudClient().describeNumber();
+    ok(`WhatsApp: token válido, número ${n.display_phone_number ?? "?"} (${n.verified_name ?? "sin nombre"})`);
+  } catch (e: any) {
+    bad(`WhatsApp: ${e?.message ?? e}`);
+    if (e?.code === 190) console.log("   → El token venció o es inválido. El temporal dura 24 h: generá uno nuevo o usá el permanente.");
+    if (e?.code === 100) console.log("   → Revisá WHATSAPP_PHONE_NUMBER_ID (es el «Identificador del número de teléfono», no el número).");
+    failures++;
+  }
+  if (!wa.verifyToken) { bad("WhatsApp: falta WHATSAPP_VERIFY_TOKEN (lo pide Meta al configurar el webhook)"); failures++; }
+  if (!wa.appSecret) console.log("⚠️ WhatsApp: sin WHATSAPP_APP_SECRET no se valida que los avisos vengan de Meta.");
+}
+
 console.log(failures ? `\n${failures} problema(s) para revisar.` : "\nTodo listo.");
 process.exitCode = failures ? 1 : 0;

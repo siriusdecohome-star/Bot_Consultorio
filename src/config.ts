@@ -55,5 +55,18 @@ export const config = {
     keyFile: path.resolve(ROOT, env("GOOGLE_SERVICE_ACCOUNT_JSON_PATH", "secrets/google-service-account.json")),
   },
 
+  whatsapp: {
+    /** Token de acceso (temporal de 24 h o permanente de usuario del sistema) */
+    token: env("WHATSAPP_TOKEN"),
+    /** "Identificador del número de teléfono" que muestra Meta (no es el número en sí) */
+    phoneNumberId: env("WHATSAPP_PHONE_NUMBER_ID"),
+    /** Texto que inventamos nosotros y se pega también en Meta al configurar el webhook */
+    verifyToken: env("WHATSAPP_VERIFY_TOKEN"),
+    /** "Clave secreta de la app" (Configuración de la app → Básica): valida que los avisos vengan de Meta */
+    appSecret: env("WHATSAPP_APP_SECRET"),
+    /** Versión de la Graph API (verificar la vigente en la documentación de Meta) */
+    graphVersion: env("WHATSAPP_GRAPH_VERSION", "v23.0"),
+  },
+
   port: num("PORT", 3000),
 };
