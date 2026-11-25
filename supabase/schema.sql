@@ -36,7 +36,11 @@ create table if not exists patients (
   id          text primary key,
   clinic_id   text not null references clinics(id) on delete cascade,
   phone       text not null,
-  name        text,
+  name        text,                       -- nombre real (lo pide el bot o lo corrige recepción)
+  profile_name  text,                     -- nombre del perfil de WhatsApp (puede no ser el real)
+  contact_phone text,                     -- teléfono de contacto editable (phone es la identidad del canal)
+  notes       text not null default '',
+  tags        text[] not null default '{}',
   channel     text not null,
   source      text,                       -- origen del lead, p. ej. 'promo-noviembre'
   created_at  timestamptz not null default now(),
@@ -54,6 +58,9 @@ create table if not exists conversations (
   messages       jsonb not null default '[]'::jsonb,   -- mensajes legibles para el panel
   privacy_shown  boolean not null default false,
   handed_off     boolean not null default false,
+  assigned_to    text,                                 -- quién tomó la conversación
+  closed_at      timestamptz,                          -- cerrada (inactividad, turno confirmado/cancelado o a mano)
+  closed_reason  text check (closed_reason in ('inactividad','turno_confirmado','turno_cancelado','manual')),
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
   unique (patient_id, channel)
@@ -137,6 +144,15 @@ create table if not exists test_results (
 alter table conversations add column if not exists bot_paused boolean not null default false;
 -- Fecha de cancelación, para las estadísticas.
 alter table appointments add column if not exists cancelled_at timestamptz;
+
+-- Bandeja y ficha del paciente (etapa «bandeja, ficha y UX»).
+alter table patients add column if not exists profile_name text;
+alter table patients add column if not exists contact_phone text;
+alter table patients add column if not exists notes text not null default '';
+alter table patients add column if not exists tags text[] not null default '{}';
+alter table conversations add column if not exists assigned_to text;
+alter table conversations add column if not exists closed_at timestamptz;
+alter table conversations add column if not exists closed_reason text;
 
 -- Lista de espera (punto 4): si se libera un horario dentro del rango y la franja,
 -- se le ofrece a la primera persona en espera.

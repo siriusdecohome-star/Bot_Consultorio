@@ -13,23 +13,23 @@
     <div class="brand">
       <span class="dot"></span>
       <div>
-        <h1>Panel del consultorio</h1>
-        <p><span id="clinic-name">…</span> · datos ficticios · <span id="updated">cargando…</span></p>
+        <h1 id="clinic-name">Panel del consultorio</h1>
+        <p><span id="updated">cargando…</span></p>
       </div>
     </div>
     <div class="actions">
-      <label class="date" id="clinic-pick" hidden>Clínica <select id="clinic"></select></label>
+      <label class="field-inline" id="clinic-pick" hidden>Clínica <select id="clinic"></select></label>
       <span class="who" id="who"></span>
-      <a class="btn ghost" id="open-sim" href="/" target="_blank" rel="noopener">Abrir simulador ↗</a>
-      <form method="post" action="/panel/logout" style="margin:0"><button class="btn ghost" type="submit">Salir</button></form>
+      <a class="btn ghost small" id="open-sim" href="/" target="_blank" rel="noopener">Abrir simulador ↗</a>
+      <form method="post" action="/panel/logout" class="inline-form"><button class="btn ghost small" type="submit">Salir</button></form>
     </div>
   </header>
 
   <nav class="tabs" id="tabs" aria-label="Secciones">
-    <button data-view="resumen" class="on">Resumen</button>
-    <button data-view="conversaciones">Conversaciones <span class="badge zero" id="tab-waiting">0</span></button>
+    <button data-view="bandeja" class="on">Bandeja <span class="badge zero" id="tab-waiting" title="Esperan respuesta">0</span></button>
+    <button data-view="resumen">Resumen</button>
     <button data-view="agenda">Agenda</button>
-    <button data-view="pacientes">Pacientes y consultas</button>
+    <button data-view="pacientes">Pacientes</button>
     <button data-view="estadisticas">Estadísticas</button>
     <button data-view="costos" data-admin>Costos</button>
     <button data-view="aprendizaje">Aprendizaje</button>
@@ -37,78 +37,117 @@
   </nav>
 
   <main>
-    <!-- ================= Resumen ================= -->
-    <section class="view" data-view="resumen">
-      <div class="view-head">
-        <h2>Resumen del día</h2>
-        <div class="actions"><label class="date">Día <input type="date" id="date" /></label><button id="today" class="btn small">Hoy</button></div>
+    <!-- ================= Bandeja (pantalla principal) ================= -->
+    <section class="view view-inbox" data-view="bandeja">
+      <div class="inbox" id="inbox-layout" data-pane="list">
+        <!-- Lista -->
+        <aside class="ib-list" aria-label="Conversaciones">
+          <div class="ib-tools">
+            <input class="search" id="conv-q" type="search" placeholder="Buscar nombre, mensaje o etiqueta…" aria-label="Buscar conversaciones" />
+            <div class="chips" id="conv-filter" role="group" aria-label="Filtrar por estado"></div>
+            <button class="link-btn" type="button" id="conv-more" aria-expanded="false">Ver pausadas y cerradas</button>
+          </div>
+          <ul class="convs" id="inbox"><li class="loading">Cargando conversaciones…</li></ul>
+          <div class="ib-foot"><button class="btn ghost small" type="button" data-export="conversaciones" title="Descargar en CSV (se abre en Excel)">⬇ Exportar CSV</button></div>
+        </aside>
+
+        <!-- Chat -->
+        <section class="ib-chat" aria-label="Conversación">
+          <div class="ib-empty" id="chat-empty">
+            <p>Elegí una conversación de la lista.</p>
+            <p class="hint">Las que esperan respuesta aparecen primero.</p>
+          </div>
+          <div class="ib-chat-inner" id="chat" hidden>
+            <header class="chat-head">
+              <button class="icon only-narrow" id="chat-back" aria-label="Volver a la lista">←</button>
+              <div class="avatar" id="c-avatar">?</div>
+              <div class="chat-title">
+                <h2 id="c-title">Paciente</h2>
+                <p id="c-sub"></p>
+              </div>
+              <button class="btn ghost small only-medium" id="show-profile" type="button">Ficha</button>
+            </header>
+            <div class="chat-actions" id="c-actions"></div>
+            <div class="thread" id="thread" aria-live="polite"></div>
+            <form class="reply" id="reply">
+              <input id="reply-text" maxlength="1000" placeholder="Responder como recepción…" autocomplete="off" aria-label="Respuesta" />
+              <button class="btn" type="submit">Enviar</button>
+            </form>
+            <p class="reply-hint" id="reply-hint"></p>
+          </div>
+        </section>
+
+        <!-- Ficha -->
+        <aside class="ib-profile" id="profile-pane" aria-label="Ficha del paciente">
+          <div class="profile-close only-medium"><button class="icon" id="hide-profile" aria-label="Cerrar ficha">✕</button></div>
+          <div id="profile"><p class="ib-empty-small">La ficha del paciente aparece al abrir una conversación.</p></div>
+        </aside>
       </div>
-      <section class="kpis" id="kpis"></section>
+    </section>
+
+    <!-- ================= Resumen ================= -->
+    <section class="view" data-view="resumen" hidden>
+      <div class="view-head">
+        <h2>Resumen</h2>
+        <div class="actions"><label class="field-inline">Día <input type="date" id="date" /></label><button id="today" class="btn ghost small">Hoy</button></div>
+      </div>
+      <section class="kpis" id="kpis"><div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div></section>
       <div class="grid">
         <div class="col-main">
           <section class="card">
-            <div class="card-head"><h2>Citas del día</h2><span class="hint" id="appt-hint"></span></div>
-            <div class="table-wrap"><table class="tbl" id="appts"></table></div>
+            <div class="card-head"><h2>Para atender ahora</h2><span class="hint">Conversaciones que esperan una respuesta de recepción</span></div>
+            <ul class="urgent" id="urgent"><li class="loading">Cargando…</li></ul>
           </section>
           <section class="card">
-            <div class="card-head"><h2>Últimas conversaciones</h2><span class="hint">Clic para ver el historial y responder</span></div>
-            <ul class="convs" id="convs"></ul>
+            <div class="card-head"><h2>Citas del día</h2><span class="hint" id="appt-hint"></span></div>
+            <ul class="day-list" id="appts"><li class="loading">Cargando…</li></ul>
           </section>
         </div>
         <div class="col-side">
           <section class="card">
-            <div class="card-head"><h2>Derivaciones</h2><span class="badge" id="ho-count">0</span></div>
-            <ul class="handoffs" id="handoffs"></ul>
+            <div class="card-head"><h2>Derivaciones abiertas</h2><span class="badge zero" id="ho-count">0</span></div>
+            <ul class="handoffs" id="handoffs"><li class="loading">Cargando…</li></ul>
           </section>
           <section class="card">
             <div class="card-head"><h2>Leads sin turno</h2><span class="hint">Llegaron por una promo</span></div>
-            <ul class="leads" id="leads"></ul>
+            <ul class="leads" id="leads"><li class="loading">Cargando…</li></ul>
           </section>
-          <section class="card">
+          <section class="card" data-admin-block>
             <div class="card-head"><h2>Rendimiento</h2><span class="hint" id="m-provider"></span></div>
+            <p class="note-box small" id="m-note" hidden></p>
             <div class="metrics" id="metrics"></div>
           </section>
         </div>
       </div>
-      <section class="card">
-        <div class="card-head"><h2>Pruebas automatizadas</h2><span class="hint">npm run test:cases</span></div>
+      <details class="card" data-admin-block>
+        <summary>Pruebas automatizadas del asistente</summary>
         <div id="tests"></div>
-      </section>
-    </section>
-
-    <!-- ================= Conversaciones ================= -->
-    <section class="view" data-view="conversaciones" hidden>
-      <div class="view-head">
-        <h2>Bandeja de conversaciones</h2>
-        <div class="filters">
-          <div class="seg" id="conv-filter" role="group" aria-label="Estado">
-            <button data-f="todas" class="on">Todas</button>
-            <button data-f="esperando">Esperan respuesta</button>
-            <button data-f="bot">Con el bot</button>
-            <button data-f="persona">Con una persona</button>
-            <button data-f="pausada">Bot en pausa</button>
-          </div>
-          <input class="search" id="conv-q" type="search" placeholder="Buscar paciente o mensaje…" />
-          <button class="btn ghost small" type="button" data-export="conversaciones" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
-        </div>
-      </div>
-      <section class="card"><ul class="convs" id="inbox"></ul></section>
+      </details>
     </section>
 
     <!-- ================= Agenda ================= -->
     <section class="view" data-view="agenda" hidden>
       <div class="view-head">
-        <h2>Agenda de la semana</h2>
+        <h2>Agenda</h2>
         <div class="actions">
-          <button class="btn ghost small" id="wk-prev" aria-label="Semana anterior">◀</button>
-          <span class="hint" id="wk-label"></span>
-          <button class="btn ghost small" id="wk-next" aria-label="Semana siguiente">▶</button>
-          <button class="btn small" id="wk-today">Esta semana</button>
-          <button class="btn ghost small" type="button" data-export="turnos" title="Descargar en CSV (se abre en Excel)">⬇ Turnos CSV</button>
+          <div class="seg" id="ag-mode" role="group" aria-label="Vista"><button data-f="7" class="on">Semana</button><button data-f="1">Día</button></div>
+          <button class="btn ghost small" id="wk-prev" aria-label="Anterior">◀</button>
+          <span class="range-label" id="wk-label"></span>
+          <button class="btn ghost small" id="wk-next" aria-label="Siguiente">▶</button>
+          <button class="btn ghost small" id="wk-today">Hoy</button>
         </div>
       </div>
-      <div class="week" id="week"></div>
-      <p class="hint">Los turnos los reserva el asistente; desde acá se marca la asistencia o se cancela (el horario se libera en el calendario y se ofrece a la lista de espera).</p>
+      <div class="filters card slim">
+        <label class="field-inline">Tratamiento <select id="ag-treatment"><option value="">Todos</option></select></label>
+        <label class="field-inline">Estado <select id="ag-status">
+          <option value="">Todos</option><option value="confirmada">Confirmada</option><option value="pendiente">Pendiente</option>
+          <option value="sin-confirmar">Sin confirmar por el paciente</option><option value="asistio">Asistió</option><option value="ausente">Ausente</option><option value="cancelada">Cancelada</option>
+        </select></label>
+        <label class="check"><input type="checkbox" id="ag-cancelled" /> Mostrar canceladas</label>
+        <span class="hint" id="ag-count"></span>
+        <button class="btn ghost small push-right" type="button" data-export="turnos" title="Descargar en CSV (se abre en Excel)">⬇ Turnos CSV</button>
+      </div>
+      <div class="cal" id="cal"><p class="loading pad">Cargando agenda…</p></div>
       <section class="card">
         <div class="card-head"><h2>Lista de espera</h2><span class="actions"><span class="hint" id="wl-hint"></span><button class="btn ghost small" type="button" data-export="lista-espera" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button></span></div>
         <div class="table-wrap"><table class="tbl" id="waitlist"></table></div>
@@ -123,13 +162,13 @@
           <div class="seg" id="pat-filter" role="group" aria-label="Tipo">
             <button data-f="todos" class="on">Todos</button>
             <button data-f="paciente">Con turno</button>
-            <button data-f="consulta">Solo consultas (leads)</button>
+            <button data-f="consulta">Solo consultas</button>
           </div>
-          <input class="search" id="pat-q" type="search" placeholder="Buscar nombre, teléfono u origen…" />
+          <input class="search" id="pat-q" type="search" placeholder="Buscar nombre, teléfono, origen o etiqueta…" aria-label="Buscar pacientes" />
           <button class="btn ghost small" type="button" data-export="pacientes" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
         </div>
       </div>
-      <section class="card"><div class="table-wrap"><table class="tbl" id="patients"></table></div></section>
+      <section class="card"><div class="table-wrap"><table class="tbl clickable" id="patients"><tr><td class="loading">Cargando…</td></tr></table></div></section>
       <section class="card">
         <div class="card-head"><h2>Pacientes para reactivar</h2><span class="hint" id="re-hint"></span></div>
         <p class="hint">El asistente les escribe solo (una vez cada 90 días) para ofrecerles un control. También puede enviarlo ahora.</p>
@@ -141,16 +180,18 @@
     <section class="view" data-view="estadisticas" hidden>
       <div class="view-head">
         <h2>Estadísticas</h2>
-        <div class="seg" id="stats-range" role="group" aria-label="Período">
-          <button data-d="7">7 días</button><button data-d="30" class="on">30 días</button><button data-d="90">90 días</button>
+        <div class="actions">
+          <div class="seg" id="stats-range" role="group" aria-label="Período">
+            <button data-d="7">7 días</button><button data-d="30" class="on">30 días</button><button data-d="90">90 días</button>
+          </div>
+          <button class="btn ghost small" type="button" data-export="estadisticas" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
         </div>
-        <button class="btn ghost small" type="button" data-export="estadisticas" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button>
       </div>
       <section class="kpis" id="stats-kpis"></section>
-      <div class="grid2">
+      <div class="grid2 equal">
         <section class="card"><div class="card-head"><h2>Consultas por día</h2><span class="hint">conversaciones nuevas</span></div><div class="chart" id="ch-consultas"></div></section>
         <section class="card"><div class="card-head"><h2>Turnos agendados y cancelados</h2><span class="legend" id="lg-turnos"></span></div><div class="chart" id="ch-turnos"></div></section>
-        <section class="card"><div class="card-head"><h2>Resueltas por el bot vs. traspasadas</h2><span class="hint" id="res-hint"></span></div><div id="ch-resolucion"></div></section>
+        <section class="card"><div class="card-head"><h2>Resueltas por el bot vs. traspasadas</h2><span class="hint" id="res-hint"></span></div><div id="ch-resolucion" class="fill-center"></div></section>
         <section class="card"><div class="card-head"><h2>Tratamientos más pedidos</h2><span class="hint">turnos del período</span></div><div id="ch-tratamientos"></div></section>
       </div>
       <details class="card"><summary>Ver los datos por día (tabla)</summary><div class="table-wrap"><table class="tbl" id="stats-table"></table></div></details>
@@ -161,7 +202,7 @@
       <div class="view-head"><h2>Costos de la IA</h2><span class="actions"><span class="hint" id="cost-provider"></span><button class="btn ghost small" type="button" data-export="costos" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button></span></div>
       <p class="note-box" id="cost-note" hidden></p>
       <section class="kpis" id="cost-kpis"></section>
-      <div class="grid2">
+      <div class="grid2 costs">
         <section class="card"><div class="card-head"><h2>Por mes</h2><span class="hint">tokens y costo por conversación</span></div><div class="table-wrap"><table class="tbl" id="cost-months"></table></div></section>
         <section class="card"><div class="card-head"><h2>Por modelo</h2></div><div class="table-wrap"><table class="tbl" id="cost-models"></table></div></section>
       </div>
@@ -188,10 +229,22 @@
               <label>Profesionales (uno por línea) <textarea name="professionals" rows="2"></textarea></label>
             </fieldset>
             <fieldset><legend>Horarios de atención</legend>
+              <p class="hint">Estos horarios limitan los turnos que ofrece el asistente, no solo el texto.</p>
               <div class="hours" id="kb-hours"></div>
               <label>Cómo lo dice el asistente <input name="hoursText" required /></label>
             </fieldset>
+            <fieldset><legend>Menú inicial</legend>
+              <label class="check"><input type="checkbox" name="menuEnabled" /> Responder a los saludos con un menú de opciones</label>
+              <p class="hint">Hasta 3 opciones se envían como botones; de 4 a 10, como lista de WhatsApp. «Consulta»: el asistente responde con los datos actuales. «Respuesta fija»: se envía el texto tal cual.</p>
+              <div class="two">
+                <label>Texto del menú <input name="menuIntro" maxlength="1024" /></label>
+                <label>Botón de la lista (hasta 20 caracteres) <input name="menuButton" maxlength="20" /></label>
+              </div>
+              <div class="rows" id="kb-menu"></div>
+              <button class="btn ghost small" type="button" id="add-option">+ Agregar opción</button>
+            </fieldset>
             <fieldset><legend>Tratamientos y precios</legend>
+              <div class="rows-head row-t"><span>Tratamiento</span><span>Precio</span><span>Duración</span><span>Notas</span><span></span></div>
               <div class="rows" id="kb-treatments"></div>
               <button class="btn ghost small" type="button" id="add-treatment">+ Agregar tratamiento</button>
             </fieldset>
@@ -209,20 +262,20 @@
             </fieldset>
           </form>
         </div>
-        <div class="col-side">
+        <div class="col-side sticky-side">
           <section class="card">
             <div class="card-head"><h2>Probador</h2><button class="btn ghost small" id="tester-reset" type="button">↺ Nueva prueba</button></div>
             <p class="hint">Converse con el asistente de esta clínica tal como está ahora. No cuenta en la bandeja ni en las estadísticas.</p>
             <div class="thread tester" id="tester-thread"></div>
-            <form class="reply" id="tester-form"><input id="tester-text" maxlength="600" placeholder="Escriba como si fuera un paciente…" autocomplete="off" /><button class="btn" type="submit">Enviar</button></form>
+            <form class="reply compact" id="tester-form"><input id="tester-text" maxlength="600" placeholder="Escriba como si fuera un paciente…" autocomplete="off" aria-label="Mensaje de prueba" /><button class="btn" type="submit">Enviar</button></form>
             <p class="hint" id="tester-tools"></p>
           </section>
           <section class="card">
-            <div class="card-head"><h2>Documentos</h2><span class="hint">PDF, Word (.docx) o texto · hasta 8 MB</span></div>
-            <p class="hint">El asistente busca en estos documentos cuando la respuesta no está en los datos de arriba (búsqueda de texto).</p>
+            <div class="card-head"><h2>Documentos</h2><span class="hint">PDF, Word o texto · hasta 8 MB</span></div>
+            <p class="hint">El asistente busca en estos documentos cuando la respuesta no está en los datos de la izquierda (búsqueda de texto).</p>
             <label class="upload" id="doc-upload"><input type="file" id="doc-file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" /> <span>📄 Subir documento</span></label>
             <ul class="docs" id="docs"></ul>
-            <form class="reply compact" id="doc-search"><input id="doc-q" placeholder="Probar la búsqueda: ¿qué encuentra para…?" /><button class="btn ghost" type="submit">Buscar</button></form>
+            <form class="reply compact" id="doc-search"><input id="doc-q" placeholder="Probar la búsqueda: ¿qué encuentra para…?" aria-label="Buscar en documentos" /><button class="btn ghost" type="submit">Buscar</button></form>
             <div id="doc-results"></div>
           </section>
         </div>
@@ -232,39 +285,47 @@
     <!-- ================= Guía ================= -->
     <section class="view guide" data-view="guia" hidden>
       <div class="view-head"><h2>Cómo funciona</h2></div>
-      <div class="grid2">
+      <div class="grid2 equal">
         <section class="card">
           <h3>💬 El asistente atiende solo</h3>
-          <p>Responde por WhatsApp (y en el simulador) las 24 horas: precios, horarios, la promo vigente y lo que esté en los documentos. Para agendar consulta la agenda real y <b>solo ofrece horarios libres</b>; la base de datos impide la doble reserva.</p>
+          <p>Responde por WhatsApp las 24 horas: precios, horarios, la promo vigente y lo que esté en los documentos. Para agendar consulta la agenda real y <b>solo ofrece horarios libres</b>; la base de datos impide la doble reserva.</p>
           <p>Nunca da consejos médicos: ante una consulta clínica o una urgencia indica qué hacer y avisa al equipo.</p>
+        </section>
+        <section class="card">
+          <h3>📥 Estados de la bandeja</h3>
+          <ul>
+            <li><b>Espera respuesta:</b> el bot no responde (derivada o en pausa) y el último mensaje del paciente no tiene respuesta de recepción.</li>
+            <li><b>Con el bot:</b> el asistente está atendiendo.</li>
+            <li><b>Con una persona:</b> recepción tomó la conversación y ya respondió.</li>
+            <li><b>Pausada:</b> el bot no responde nada hasta que lo reanude.</li>
+            <li><b>Cerrada:</b> por inactividad, al confirmar o cancelar un turno, o a mano. Si el paciente vuelve a escribir, se reabre sola.</li>
+          </ul>
         </section>
         <section class="card">
           <h3>🙋 Cuándo interviene una persona</h3>
           <ul>
-            <li><b>Derivación:</b> si el paciente pide una persona, se queja o es una urgencia, el asistente deja un resumen y la conversación aparece en <i>Esperan respuesta</i>.</li>
-            <li><b>Tomar conversación:</b> desde la bandeja, el bot deja de contestar y usted responde desde el panel por el mismo canal.</li>
-            <li><b>Pausar el bot:</b> el asistente no responde nada en esa conversación hasta que lo reanude.</li>
+            <li><b>Derivación:</b> si el paciente pide una persona, se queja o es una urgencia, el asistente deja un resumen y la conversación pasa a <i>Espera respuesta</i>.</li>
+            <li><b>Tomar conversación</b> (o responder): el bot deja de contestar y usted responde desde el panel por el mismo canal.</li>
             <li><b>Devolver al bot:</b> cierra la derivación y el asistente vuelve a atender.</li>
           </ul>
         </section>
         <section class="card">
           <h3>📝 Lista de espera y reactivación</h3>
-          <p>Si no hay horarios que le sirvan, el asistente anota al paciente en la <b>lista de espera</b> con su rango de días y franja. Cuando alguien cancela, el horario se ofrece por WhatsApp a la primera persona que coincide, con botones <i>Lo tomo · No, gracias</i>. Si no responde a tiempo, pasa a la siguiente.</p>
+          <p>Si no hay horarios que le sirvan, el asistente anota al paciente en la <b>lista de espera</b>. Cuando alguien cancela, el horario se ofrece por WhatsApp a la primera persona que coincide, con botones <i>Lo tomo · No, gracias</i>.</p>
           <p>A quien no viene hace varios meses, el asistente lo invita a un control (<b>reactivación</b>), como máximo una vez cada 90 días.</p>
         </section>
         <section class="card">
           <h3>⏰ Recordatorios y seguimiento</h3>
-          <p>Un día antes y dos horas antes del turno el asistente envía un recordatorio con botones <i>Confirmo · Cambiar horario · Cancelar</i>. Si el paciente cancela, el horario se libera en el calendario y se le ofrece otro.</p>
-          <p>A quien consultó por una promo y no agendó, le escribe una vez para ofrecerle turno.</p>
+          <p>Un día antes y dos horas antes del turno el asistente envía un recordatorio con botones <i>Confirmo · Cambiar horario · Cancelar</i>. A quien consultó por una promo y no agendó, le escribe una vez para ofrecerle turno.</p>
         </section>
         <section class="card">
           <h3>🧠 Enseñarle cosas nuevas</h3>
-          <p>En <i>Aprendizaje</i> el admin edita horarios, tratamientos, precios, preguntas frecuentes y el tono, y sube documentos. El cambio rige desde el siguiente mensaje. Use el <b>probador</b> para verificar cómo responde antes de que le escriba un paciente.</p>
+          <p>En <i>Aprendizaje</i> el admin edita horarios, tratamientos, precios, preguntas frecuentes, el menú inicial y el tono, y sube documentos. El cambio rige desde el siguiente mensaje. Use el <b>probador</b> para verificar cómo responde.</p>
         </section>
         <section class="card">
           <h3>👥 Roles</h3>
           <ul>
-            <li><b>Recepción:</b> conversaciones, agenda, pacientes y estadísticas de su clínica; puede usar el probador.</li>
+            <li><b>Recepción:</b> bandeja, agenda, pacientes y estadísticas de su clínica; puede usar el probador.</li>
             <li><b>Admin:</b> además ve los costos de la IA y edita lo que sabe el asistente.</li>
           </ul>
           <p>Cada usuario ve solo sus clínicas: lo garantiza la base de datos (RLS), no solo la pantalla.</p>
@@ -273,32 +334,23 @@
           <h3>📊 Qué miden las estadísticas</h3>
           <ul>
             <li><b>Consultas:</b> conversaciones nuevas por día.</li>
+            <li><b>Pacientes nuevos:</b> consultas de quien escribió por primera vez (nunca más que las consultas).</li>
             <li><b>Conversión:</b> de los pacientes nuevos del período, cuántos reservaron un turno.</li>
-            <li><b>Resueltas por el bot:</b> conversaciones que no necesitaron a una persona.</li>
-            <li><b>Costos:</b> tokens y dólares por conversación, el mes en curso y su proyección.</li>
+            <li><b>Costos:</b> tokens y dólares por conversación; lo estimado se marca como tal.</li>
           </ul>
         </section>
       </div>
     </section>
   </main>
 
-  <!-- Detalle de conversación -->
+  <!-- Panel lateral (turno de la agenda o ficha desde Pacientes) -->
   <div class="drawer-bg" id="drawer-bg"></div>
-  <aside class="drawer" id="drawer" aria-hidden="true">
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="dr-title">
     <div class="drawer-head">
-      <div>
-        <h3 id="d-title">Conversación</h3>
-        <p id="d-sub"></p>
-      </div>
-      <button class="icon" id="d-close" aria-label="Cerrar">✕</button>
+      <h3 id="dr-title">Detalle</h3>
+      <button class="icon" id="dr-close" aria-label="Cerrar">✕</button>
     </div>
-    <div class="d-actions" id="d-actions"></div>
-    <div class="d-appts" id="d-appts"></div>
-    <div class="thread" id="thread"></div>
-    <form class="reply" id="reply">
-      <input id="reply-text" maxlength="1000" placeholder="Responder como recepción…" autocomplete="off" />
-      <button class="btn" type="submit">Enviar</button>
-    </form>
+    <div class="drawer-body" id="dr-body"></div>
   </aside>
 
   <div class="chart-tip" id="chart-tip" role="tooltip" hidden></div>

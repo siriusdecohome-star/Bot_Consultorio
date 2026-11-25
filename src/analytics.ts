@@ -7,22 +7,6 @@ import type { Appointment, Conversation, Handoff, Patient, TurnMetric } from "./
  * Las fechas se agrupan por día en la zona horaria de la clínica.
  */
 
-export type ConvStatus = "bot" | "persona" | "pausada";
-
-export function conversationStatus(c: Conversation): ConvStatus {
-  if (c.botPaused) return "pausada";
-  if (c.handedOff) return "persona";
-  return "bot";
-}
-
-/** La conversación espera una respuesta de una persona: el último mensaje es del paciente y el bot no responde. */
-export function waitingForHuman(c: Conversation): boolean {
-  if (conversationStatus(c) === "bot") return false;
-  const lastPatient = c.messages.findLastIndex((m) => m.role === "patient");
-  const lastHuman = c.messages.findLastIndex((m) => m.role === "human");
-  return lastPatient > lastHuman;
-}
-
 const dayKey = (iso: string, tz: string) => DateTime.fromISO(iso, { zone: "utc" }).setZone(tz).toISODate()!;
 const firstPatientAt = (c: Conversation) => c.messages.find((m) => m.role === "patient")?.at ?? c.createdAt;
 const normTreatment = (t: string) =>
@@ -61,8 +45,21 @@ export function buildStats(i: StatsInput) {
   };
 
   const convs = i.conversations.filter((c) => c.messages.some((m) => m.role === "patient"));
-  for (const c of convs) bump(firstPatientAt(c), "consultas");
-  for (const p of i.patients) bump(p.createdAt, "pacientesNuevos");
+  // Paciente nuevo = consulta de alguien que escribió por primera vez ese día. Así nunca
+  // hay más pacientes nuevos que consultas (los contactos que no escribieron no cuentan).
+  const patientById = new Map(i.patients.map((p) => [p.id, p]));
+  const firstConvOf = new Map<string, string>();
+  for (const c of convs) {
+    const at = firstPatientAt(c);
+    const prev = firstConvOf.get(c.patientId);
+    if (!prev || at < prev) firstConvOf.set(c.patientId, at);
+  }
+  for (const c of convs) {
+    const at = firstPatientAt(c);
+    bump(at, "consultas");
+    const p = patientById.get(c.patientId);
+    if (p && firstConvOf.get(c.patientId) === at && dayKey(p.createdAt, i.tz) === dayKey(at, i.tz)) bump(at, "pacientesNuevos");
+  }
   // Un turno reprogramado se reemplaza por uno nuevo: se cuenta solo el nuevo.
   const booked = i.appointments.filter((a) => a.status !== "reprogramada");
   for (const a of booked) bump(a.createdAt, "turnosAgendados");
@@ -70,7 +67,7 @@ export function buildStats(i: StatsInput) {
 
   // Conversión: de los pacientes nuevos del período, cuántos reservaron al menos un turno.
   const withAppt = new Set(booked.map((a) => a.patientId));
-  const newPatients = i.patients.filter((p) => inRange(p.createdAt));
+  const newPatients = i.patients.filter((p) => inRange(p.createdAt) && firstConvOf.has(p.id) && dayKey(p.createdAt, i.tz) === dayKey(firstConvOf.get(p.id)!, i.tz));
   const leads = newPatients.filter((p) => p.source);
   const rate = (xs: Patient[]) => (xs.length ? xs.filter((p) => withAppt.has(p.id)).length / xs.length : 0);
 
@@ -120,7 +117,12 @@ export interface CostRow {
   cacheReadTokens: number;
   costUsd: number;
   costPerConversation: number;
+  /** Parte del costo que sale de datos de ejemplo (estimado, no medido). */
+  estimatedUsd: number;
 }
+
+/** Métricas de los datos de ejemplo: costo estimado con precios oficiales, no medido. */
+export const isSimulated = (m: TurnMetric) => m.model.includes("(simulado)");
 
 /** Costos por mes, el mes en curso con proyección a fin de mes, y desglose por modelo. */
 export function buildCosts(metrics: TurnMetric[], tz: string, now: Date) {
@@ -143,6 +145,7 @@ export function buildCosts(metrics: TurnMetric[], tz: string, now: Date) {
       cacheReadTokens: g.rows.reduce((s, m) => s + m.cacheReadTokens, 0),
       costUsd,
       costPerConversation: g.convs.size ? costUsd / g.convs.size : 0,
+      estimatedUsd: g.rows.filter(isSimulated).reduce((s, m) => s + m.costUsd, 0),
     };
   });
 
@@ -152,10 +155,10 @@ export function buildCosts(metrics: TurnMetric[], tz: string, now: Date) {
   const daysInMonth = local.daysInMonth ?? 30;
   const factor = elapsed > 0 ? daysInMonth / elapsed : 0;
 
-  const byModel = new Map<string, { turns: number; costUsd: number }>();
+  const byModel = new Map<string, { turns: number; costUsd: number; estimated: boolean }>();
   for (const m of metrics) {
-    const k = `${m.provider} · ${m.model}`;
-    const g = byModel.get(k) ?? { turns: 0, costUsd: 0 };
+    const k = `${m.provider} · ${m.model.replace(" (simulado)", "")}${isSimulated(m) ? " · estimado" : ""}`;
+    const g = byModel.get(k) ?? { turns: 0, costUsd: 0, estimated: isSimulated(m) };
     g.turns++;
     g.costUsd += m.costUsd;
     byModel.set(k, g);
@@ -171,10 +174,13 @@ export function buildCosts(metrics: TurnMetric[], tz: string, now: Date) {
       projectedConversations: Math.round((current?.conversations ?? 0) * factor),
       daysElapsed: Math.round(elapsed * 10) / 10,
       daysInMonth,
+      /** El mes incluye costos estimados (datos de ejemplo): se muestran como estimación. */
+      estimated: (current?.estimatedUsd ?? 0) > 0,
+      measuredUsd: (current?.costUsd ?? 0) - (current?.estimatedUsd ?? 0),
     },
     byModel: [...byModel.entries()].map(([model, g]) => ({ model, ...g })).sort((a, b) => b.costUsd - a.costUsd),
     onlyMock: metrics.length > 0 && metrics.every((m) => m.provider === "mock"),
     /** Hay métricas de los datos de ejemplo (simuladas, no medidas). */
-    simulated: metrics.some((m) => m.model.includes("(simulado)")),
+    simulated: metrics.some(isSimulated),
   };
 }

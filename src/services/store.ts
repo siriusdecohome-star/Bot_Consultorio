@@ -11,11 +11,20 @@ export type Channel = "web" | "whatsapp" | "cli" | "test";
 export interface Patient {
   id: string;
   phone: string;
+  /** Nombre real (lo pide el bot al agendar o lo corrige recepción en la ficha). */
   name: string | null;
+  /** Nombre del perfil de WhatsApp: puede no ser el real, se guarda aparte. */
+  profileName: string | null;
+  /** Teléfono de contacto editable. `phone` es la identidad del canal (número de WhatsApp o sesión del simulador) y no cambia. */
+  contactPhone: string | null;
+  notes: string;
+  tags: string[];
   channel: Channel;
   source: string | null; // p. ej. "promo-noviembre"
   createdAt: string;
 }
+
+export type PatientPatch = Partial<Pick<Patient, "name" | "source" | "profileName" | "contactPhone" | "notes" | "tags">>;
 
 export type AppointmentStatus = "confirmada" | "pendiente" | "cancelada" | "reprogramada" | "asistio" | "ausente";
 
@@ -40,6 +49,10 @@ export interface ChatMessage {
   role: "patient" | "bot" | "human" | "system";
   text: string;
   at: string;
+  /** Quién escribió los mensajes de recepción (correo del usuario del panel). */
+  by?: string;
+  /** Opciones del menú que acompañaron al mensaje del bot (botones o lista). */
+  options?: string[];
   /** Mensajes que envía el bot por iniciativa propia (recordatorios, seguimiento). */
   meta?: {
     kind: "reminder24" | "reminder2" | "followup" | "waitlist_offer" | "reactivation";
@@ -63,9 +76,16 @@ export interface Conversation {
   handedOff: boolean;
   /** Pausa manual desde el panel: el bot no responde nada (ni el aviso de recepción). */
   botPaused: boolean;
+  /** Persona del equipo que tomó la conversación (correo). */
+  assignedTo: string | null;
+  /** Cerrada por inactividad, al confirmar o cancelar un turno, o a mano. Se reabre si el paciente vuelve a escribir. */
+  closedAt: string | null;
+  closedReason: CloseReason | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type CloseReason = "inactividad" | "turno_confirmado" | "turno_cancelado" | "manual";
 
 export interface Handoff {
   id: string;
@@ -152,7 +172,7 @@ export interface Store {
   forClinic(clinicId: string): Store;
 
   getOrCreatePatient(phone: string, channel: Channel, source?: string | null): Promise<Patient>;
-  updatePatient(id: string, patch: Partial<Pick<Patient, "name" | "source">>): Promise<Patient>;
+  updatePatient(id: string, patch: PatientPatch): Promise<Patient>;
   getPatient(id: string): Promise<Patient | null>;
   listPatients(): Promise<Patient[]>;
 
@@ -229,24 +249,27 @@ export class InMemoryStore implements Store {
 
   async getOrCreatePatient(phone: string, channel: Channel, source: string | null = null) {
     const found = [...this.data.patients.values()].find((p) => this.mine(p) && p.phone === phone);
-    if (found) return strip(found);
-    const p: Owned<Patient> = { id: id("pac"), phone, name: null, channel, source, createdAt: this.now(), clinicId: this.clinicId };
+    if (found) return structuredClone(strip(found));
+    const p: Owned<Patient> = {
+      id: id("pac"), phone, name: null, profileName: null, contactPhone: channel === "whatsapp" ? phone : null, notes: "", tags: [],
+      channel, source, createdAt: this.now(), clinicId: this.clinicId,
+    };
     this.data.patients.set(p.id, p);
-    return strip(p);
+    return structuredClone(strip(p));
   }
-  async updatePatient(pid: string, patch: Partial<Pick<Patient, "name" | "source">>) {
+  async updatePatient(pid: string, patch: PatientPatch) {
     const cur = this.data.patients.get(pid);
     if (!this.mine(cur)) throw new Error("paciente no encontrado");
-    const p = { ...cur, ...patch };
+    const p = { ...cur, ...structuredClone(patch) };
     this.data.patients.set(pid, p);
-    return strip(p);
+    return structuredClone(strip(p));
   }
   async getPatient(pid: string) {
     const p = this.data.patients.get(pid);
-    return this.mine(p) ? strip(p) : null;
+    return this.mine(p) ? structuredClone(strip(p)) : null;
   }
   async listPatients() {
-    return [...this.data.patients.values()].filter((p) => this.mine(p)).map((p) => strip(p));
+    return [...this.data.patients.values()].filter((p) => this.mine(p)).map((p) => structuredClone(strip(p)));
   }
 
   async getOrCreateConversation(patient: Patient, channel: Channel) {
@@ -254,7 +277,8 @@ export class InMemoryStore implements Store {
     if (found) return structuredClone(strip(found));
     const c: Owned<Conversation> = {
       id: id("conv"), patientId: patient.id, channel, llmState: [], llmProvider: "",
-      messages: [], privacyShown: false, handedOff: false, botPaused: false, createdAt: this.now(), updatedAt: this.now(), clinicId: this.clinicId,
+      messages: [], privacyShown: false, handedOff: false, botPaused: false, assignedTo: null, closedAt: null, closedReason: null,
+      createdAt: this.now(), updatedAt: this.now(), clinicId: this.clinicId,
     };
     this.data.conversations.set(c.id, c);
     return structuredClone(strip(c));
@@ -345,7 +369,7 @@ export class InMemoryStore implements Store {
   /** Carga datos de ejemplo ya armados (ids y fechas propios) en esta clínica. Solo en memoria. */
   importDemo(d: { patients: Patient[]; conversations: Conversation[]; appointments: Appointment[]; handoffs: Handoff[]; metrics: TurnMetric[]; waitlist: WaitlistEntry[] }) {
     const c = this.clinicId;
-    for (const p of d.patients) this.data.patients.set(p.id, { ...p, clinicId: c });
+    for (const p of d.patients) this.data.patients.set(p.id, { ...structuredClone(p), clinicId: c });
     for (const v of d.conversations) this.data.conversations.set(v.id, { ...structuredClone(v), clinicId: c });
     for (const a of d.appointments) this.data.appointments.set(a.id, { ...a, clinicId: c });
     for (const h of d.handoffs) this.data.handoffs.push({ ...h, clinicId: c });

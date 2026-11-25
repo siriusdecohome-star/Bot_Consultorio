@@ -6,9 +6,15 @@ import { config, ROOT } from "./config.js";
 import { isSecure, type AuthBackend, type Membership, type PanelUser } from "./auth.js";
 import { withClinic } from "./clinics/context.js";
 import type { ClinicRuntime } from "./clinics/registry.js";
-import type { Store, TurnMetric } from "./services/store.js";
+import type { Appointment, Conversation, Patient, Store, TurnMetric } from "./services/store.js";
 import type { ClinicKnowledge } from "./clinics/types.js";
-import { buildCosts, buildStats, conversationStatus, waitingForHuman } from "./analytics.js";
+import { buildCosts, buildStats, isSimulated } from "./analytics.js";
+import {
+  CLOSE_REASON_LABEL, closeConversation, conversationState, inboxCounts, INBOX_FILTERS, lastActivity, matchesFilter,
+  reopenConversation, STATE_LABEL, type InboxFilter,
+} from "./bot/conversationState.js";
+import { renamePatient } from "./bot/tools.js";
+import { validateMenu } from "./bot/menu.js";
 import { docKind, MAX_DOC_BYTES, toChunks } from "./documents.js";
 import { toCsv, type Cell } from "./csv.js";
 import { localKey, toLocal, TZ, type Clock } from "./services/time.js";
@@ -95,29 +101,53 @@ export function createPanelRouter(opts: PanelOptions): Router {
       const from = day.startOf("day");
       const to = from.plus({ days: 1 });
 
-      const [dayAppts, upcoming, convs, handoffs, metrics] = await Promise.all([
+      const [dayAppts, upcoming, convs, handoffs, metrics, patients, waitlist, allAppts] = await Promise.all([
         store.listAppointments({ from: from.toUTC().toISO()!, to: to.toUTC().toISO()! }),
         store.listAppointments({ from: now.toUTC().toISO()!, to: now.plus({ days: 7 }).toUTC().toISO()!, status: ["confirmada", "pendiente"] }),
         store.listConversations(),
         store.listHandoffs(),
         // Costos: solo el admin (la base también lo impide con RLS).
         isAdmin ? store.listMetrics() : Promise.resolve([] as TurnMetric[]),
+        store.listPatients(),
+        store.listWaitlist(["esperando", "ofrecido"]),
+        store.listAppointments(),
       ]);
+      const byId = new Map(patients.map((p) => [p.id, p]));
+      const inbox = convs.filter((c) => c.channel !== "test");
+      const convById = new Map(inbox.map((c) => [c.id, c]));
+      const convOf = (patientId: string) => inbox.find((c) => c.patientId === patientId)?.id ?? null;
+      const states = new Map(inbox.map((c) => [c.id, conversationState(c)]));
+      const counts = inboxCounts([...states.values()]);
 
-      const patients = new Map<string, Awaited<ReturnType<Store["getPatient"]>>>();
-      for (const id of new Set([...convs.map((c) => c.patientId), ...dayAppts.map((a) => a.patientId)])) {
-        patients.set(id, await store.getPatient(id));
-      }
+      // Lo urgente: conversaciones que esperan respuesta (la más antigua primero).
+      const openByConv = new Map(handoffs.filter((h) => h.status === "abierta").map((h) => [h.conversationId, h]));
+      const waiting = inbox
+        .filter((c) => states.get(c.id) === "esperando")
+        .map((c) => {
+          const p = byId.get(c.patientId);
+          const lastPatient = c.messages.findLast((m) => m.role === "patient");
+          return {
+            id: c.id, patient: displayName(p), phone: mask(p?.contactPhone ?? p?.phone ?? ""), channel: c.channel,
+            lastText: lastPatient?.text.slice(0, 120) ?? "", since: lastPatient?.at ?? lastActivity(c),
+            reason: openByConv.get(c.id)?.reason ?? (c.botPaused ? "pausada" : null),
+          };
+        })
+        .sort((a, b) => a.since.localeCompare(b.since));
+
+      // Derivaciones abiertas: solo las de conversaciones que siguen con una persona (mismo criterio que la bandeja).
+      const openHandoffs = handoffs
+        .filter((h) => h.status === "abierta" && convById.has(h.conversationId) && !convById.get(h.conversationId)!.closedAt)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
       // Leads: llegaron por una promo y nunca reservaron
-      const withAppt = new Set((await store.listAppointments()).map((a) => a.patientId));
-      const leads = convs
-        .filter((c) => patients.get(c.patientId)?.source && !withAppt.has(c.patientId))
+      const withAppt = new Set(allAppts.map((a) => a.patientId));
+      const leads = inbox
+        .filter((c) => byId.get(c.patientId)?.source && !withAppt.has(c.patientId))
         .map((c) => {
-          const p = patients.get(c.patientId)!;
-          const lastPatient = [...c.messages].reverse().find((m) => m.role === "patient");
+          const p = byId.get(c.patientId)!;
+          const lastPatient = c.messages.findLast((m) => m.role === "patient");
           return {
-            conversationId: c.id, name: p.name, phone: mask(p.phone), channel: c.channel, source: p.source,
+            conversationId: c.id, name: displayName(p), phone: mask(p.contactPhone ?? p.phone), channel: c.channel, source: p.source,
             lastContact: lastPatient?.at ?? c.updatedAt,
             followupSent: c.messages.some((m) => m.meta?.kind === "followup"),
           };
@@ -125,9 +155,10 @@ export function createPanelRouter(opts: PanelOptions): Router {
         .sort((a, b) => b.lastContact.localeCompare(a.lastContact))
         .slice(0, 50);
 
-      // Métricas por conversación (costo total y tiempo de respuesta)
-      const real = metrics.filter((m) => m.provider !== "mock");
-      const use = real.length ? real : metrics;
+      // Rendimiento: con mediciones reales si las hay; si no, las estimadas de los datos de ejemplo (y se avisa).
+      const measured = metrics.filter((m) => !isSimulated(m) && m.provider !== "mock");
+      const estimated = !measured.length && metrics.some(isSimulated);
+      const use = measured.length ? measured : metrics.filter(isSimulated);
       const byConv = new Map<string, TurnMetric[]>();
       for (const m of use) byConv.set(m.conversationId, [...(byConv.get(m.conversationId) ?? []), m]);
       const convCosts = [...byConv.values()].map((ms) => ms.reduce((s, m) => s + m.costUsd, 0));
@@ -139,49 +170,45 @@ export function createPanelRouter(opts: PanelOptions): Router {
         role: req.membership!.role,
         date: from.toISODate(),
         now: localKey(now),
+        counts,
         kpis: {
-          appointmentsToday: active.length,
+          waiting: counts.esperando,
+          // Todas las citas del día que no se cancelaron (incluye las que ya pasaron): coincide con la lista.
+          appointmentsToday: dayAppts.filter((a) => a.status !== "cancelada" && a.status !== "reprogramada").length,
+          upcomingToday: active.filter((a) => a.start > clock().toISOString()).length,
+          unconfirmedToday: active.filter((a) => !a.confirmedByPatient && a.start > clock().toISOString()).length,
           confirmedToday: active.filter((a) => a.confirmedByPatient).length,
           cancelledToday: dayAppts.filter((a) => a.status === "cancelada").length,
           next7Days: upcoming.length,
-          openHandoffs: handoffs.filter((h) => h.status === "abierta").length,
+          openHandoffs: openHandoffs.length,
+          waitlist: waitlist.length,
+          offersPending: waitlist.filter((w) => w.status === "ofrecido").length,
           leadsWithoutAppointment: leads.length,
-          conversations: convs.length,
         },
-        appointments: dayAppts.map((a) => ({
+        waiting,
+        appointments: dayAppts.filter((a) => a.status !== "reprogramada").map((a) => ({
           id: a.id,
-          time: toLocal(a.start).toFormat("HH:mm"),
-          patient: a.patientName,
-          phone: mask(patients.get(a.patientId)?.phone ?? ""),
-          channel: patients.get(a.patientId)?.channel ?? "",
+          start: a.start,
+          end: a.end,
+          patientId: a.patientId,
+          conversationId: convOf(a.patientId),
+          patient: displayName(byId.get(a.patientId)) ?? a.patientName,
+          phone: mask(byId.get(a.patientId)?.contactPhone ?? byId.get(a.patientId)?.phone ?? ""),
+          channel: byId.get(a.patientId)?.channel ?? "",
           treatment: a.treatment,
           status: a.status,
           confirmed: a.confirmedByPatient,
           reminder24: a.reminder24Sent,
           reminder2: a.reminder2Sent,
         })),
-        handoffs: handoffs
-          .map((h) => {
-            const p = patients.get(h.patientId);
-            return { ...h, patient: p?.name ?? mask(p?.phone ?? ""), channel: convs.find((c) => c.id === h.conversationId)?.channel ?? "" };
-          })
-          .sort((a, b) => (a.status === b.status ? b.createdAt.localeCompare(a.createdAt) : a.status === "abierta" ? -1 : 1))
-          .slice(0, 50),
-        conversations: convs
-          .map((c) => {
-            const p = patients.get(c.patientId);
-            const last = c.messages.at(-1);
-            return {
-              id: c.id, patient: p?.name ?? null, phone: mask(p?.phone ?? ""), channel: c.channel,
-              messages: c.messages.length, lastText: last?.text.slice(0, 90) ?? "", lastAt: last?.at ?? c.updatedAt,
-              handedOff: c.handedOff, source: p?.source ?? null,
-            };
-          })
-          .sort((a, b) => b.lastAt.localeCompare(a.lastAt))
-          .slice(0, 60),
+        handoffs: openHandoffs.slice(0, 30).map((h) => {
+          const p = byId.get(h.patientId);
+          return { ...h, patient: displayName(p) ?? mask(p?.phone ?? ""), channel: convById.get(h.conversationId)?.channel ?? "" };
+        }),
         leads,
         metrics: !isAdmin ? null : {
-          provider: use[0] ? `${use[0].provider} · ${use[0].model}` : "sin datos",
+          provider: use[0] ? `${use[0].provider} · ${use[0].model.replace(" (simulado)", "")}` : "sin datos",
+          estimated,
           turns: use.length,
           medianLatencyMs: median(lat),
           p95LatencyMs: p95(lat),
@@ -196,21 +223,46 @@ export function createPanelRouter(opts: PanelOptions): Router {
     }
   });
 
+  /** Detalle de una conversación: mensajes, estado, ficha del paciente y sus turnos. */
   r.get("/conversation/:id", async (req: PanelRequest, res) => {
     const store = req.store!;
     const c = await store.getConversation(String(req.params.id));
     if (!c) return res.status(404).json({ error: "No existe" });
-    const p = await store.getPatient(c.patientId);
-    const appts = await store.listAppointments({ patientId: c.patientId });
+    const [p, appts, handoffs] = await Promise.all([
+      store.getPatient(c.patientId), store.listAppointments({ patientId: c.patientId }), store.listHandoffs(),
+    ]);
+    const state = conversationState(c);
     res.json({
-      id: c.id, channel: c.channel, handedOff: c.handedOff, botPaused: c.botPaused, status: conversationStatus(c),
-      patient: { name: p?.name ?? null, phone: mask(p?.phone ?? ""), source: p?.source ?? null },
-      appointments: appts.map((a) => ({ id: a.id, when: toLocal(a.start).setLocale("es").toFormat("ccc dd/MM HH:mm"), treatment: a.treatment, status: a.status, confirmed: a.confirmedByPatient })),
+      id: c.id, channel: c.channel, state, stateLabel: STATE_LABEL[state],
+      handedOff: c.handedOff, botPaused: c.botPaused, assignedTo: c.assignedTo,
+      closedAt: c.closedAt, closedReason: c.closedReason ? CLOSE_REASON_LABEL[c.closedReason] : null,
+      patient: patientCard(p),
+      appointments: appts.filter((a) => a.status !== "reprogramada").map(apptView),
+      handoffs: handoffs.filter((h) => h.conversationId === c.id && h.status === "abierta"),
       messages: c.messages,
     });
   });
 
-  /** Una persona del equipo responde al paciente desde el panel (por su mismo canal). */
+  /** Una persona del equipo toma la conversación: el bot deja de responder y queda una derivación abierta. */
+  async function takeOver(store: Store, c: Conversation, by: string, at: string) {
+    if (!(await store.listHandoffs()).some((h) => h.conversationId === c.id && h.status === "abierta")) {
+      await store.createHandoff({ conversationId: c.id, patientId: c.patientId, reason: "tomada_desde_panel", summary: `Tomada desde el panel por ${by}.` });
+    }
+    c.handedOff = true;
+    c.assignedTo = by;
+    c.messages.push({ role: "system", text: `${by} tomó la conversación: el asistente deja de responder.`, at });
+  }
+  async function resolveHandoffs(store: Store, conversationId: string) {
+    for (const h of (await store.listHandoffs()).filter((x) => x.conversationId === conversationId && x.status === "abierta")) {
+      await store.updateHandoff(h.id, { status: "resuelta" });
+    }
+  }
+
+  /**
+   * Una persona del equipo responde al paciente desde el panel (por su mismo canal).
+   * Si el bot estaba atendiendo, responder equivale a tomar la conversación (así no contestan los dos).
+   * Si estaba cerrada, se reabre.
+   */
   r.post("/conversation/:id/reply", async (req: PanelRequest, res) => {
     const store = req.store!;
     const text = typeof req.body?.text === "string" ? req.body.text.trim().slice(0, 1000) : "";
@@ -219,9 +271,15 @@ export function createPanelRouter(opts: PanelOptions): Router {
     if (!c) return res.status(404).json({ error: "No existe" });
     const p = await store.getPatient(c.patientId);
     if (!p) return res.status(404).json({ error: "Paciente no encontrado" });
+    const by = req.user!.email;
     try {
-      const how = await req.runtime!.notifier.send(c.channel, p.phone, { text: `👩‍⚕️ *Equipo de recepción:* ${text}` });
-      c.messages.push({ role: "human", text, at: clock().toISOString() });
+      // Pacientes de ejemplo: el teléfono es ficticio, el mensaje se guarda sin enviarse.
+      const how = p.id.startsWith("demo_") ? "omitido" : await req.runtime!.notifier.send(c.channel, p.phone, { text: `👩‍⚕️ *Recepción:* ${text}` });
+      const at = clock().toISOString();
+      reopenConversation(c, at, `${by} reabrió la conversación.`);
+      if (!c.handedOff && !c.botPaused) await takeOver(store, c, by, at);
+      else c.assignedTo ??= by; // quien responde queda a cargo
+      c.messages.push({ role: "human", text, at, by });
       await store.saveConversation(c);
       res.json({ ok: true, how });
     } catch (err) {
@@ -239,6 +297,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
       const c = await store.getConversation(h.conversationId);
       if (c) {
         c.handedOff = false;
+        c.assignedTo = null;
         c.messages.push({ role: "system", text: "Derivación resuelta desde el panel: la conversación vuelve al asistente.", at: clock().toISOString() });
         await store.saveConversation(c);
       }
@@ -250,39 +309,48 @@ export function createPanelRouter(opts: PanelOptions): Router {
   // Conversaciones: bandeja con estado, traspaso a una persona y pausa del bot
   // ===================================================================
 
+  /** Bandeja: conversaciones del filtro pedido (por defecto, las activas) y los contadores de cada filtro. */
   r.get("/conversations", async (req: PanelRequest, res) => {
     const store = req.store!;
-    const estado = typeof req.query.estado === "string" ? req.query.estado : "todas";
+    const wanted = String(req.query.filtro ?? req.query.estado ?? "activas") as InboxFilter;
+    const filter: InboxFilter = INBOX_FILTERS.includes(wanted) ? wanted : "activas";
     const q = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
     const [convs, patients] = await Promise.all([store.listConversations(), store.listPatients()]);
     const byId = new Map(patients.map((p) => [p.id, p]));
-    const list = convs
+    const all = convs
       .filter((c) => c.channel !== "test")
       .map((c) => {
         const p = byId.get(c.patientId);
-        const last = c.messages.at(-1);
+        const state = conversationState(c);
+        const last = c.messages.findLast((m) => m.role !== "system");
         return {
-          id: c.id, patient: p?.name ?? null, phone: mask(p?.phone ?? ""), channel: c.channel, source: p?.source ?? null,
-          status: conversationStatus(c), waiting: waitingForHuman(c),
-          messages: c.messages.length, lastText: last?.text.slice(0, 120) ?? "", lastRole: last?.role ?? null, lastAt: last?.at ?? c.updatedAt,
+          id: c.id, patientId: c.patientId, patient: displayName(p), phone: mask(p?.contactPhone ?? p?.phone ?? ""),
+          channel: c.channel, source: p?.source ?? null, tags: p?.tags ?? [],
+          state, waiting: state === "esperando", assignedTo: c.assignedTo,
+          closedReason: c.closedReason ? CLOSE_REASON_LABEL[c.closedReason] : null,
+          lastText: last?.text.slice(0, 120) ?? "", lastRole: last?.role ?? null, lastAt: lastActivity(c),
         };
       })
-      .filter((c) => estado === "todas" || (estado === "esperando" ? c.waiting : c.status === estado))
-      .filter((c) => !q || `${c.patient ?? ""} ${c.phone} ${c.lastText}`.toLowerCase().includes(q))
+      .filter((c) => !q || `${c.patient ?? ""} ${c.phone} ${c.lastText} ${c.tags.join(" ")}`.toLowerCase().includes(q));
+    const list = all
+      .filter((c) => matchesFilter(c.state, filter))
       .sort((a, b) => Number(b.waiting) - Number(a.waiting) || b.lastAt.localeCompare(a.lastAt));
-    res.json({ conversations: list.slice(0, 200) });
+    res.json({ filter, counts: inboxCounts(all.map((c) => c.state)), conversations: list.slice(0, 300) });
   });
 
-  /** Una persona toma la conversación: el bot deja de contestar y queda una derivación abierta. */
+  /** Contadores de la bandeja (pestaña y resumen): mismos criterios que la lista. */
+  r.get("/inbox/counts", async (req: PanelRequest, res) => {
+    const convs = (await req.store!.listConversations()).filter((c) => c.channel !== "test");
+    res.json({ counts: inboxCounts(convs.map(conversationState)) });
+  });
+
   r.post("/conversation/:id/takeover", async (req: PanelRequest, res) => {
     const store = req.store!;
     const c = await store.getConversation(String(req.params.id));
     if (!c) return res.status(404).json({ error: "No existe" });
-    if (!(await store.listHandoffs()).some((h) => h.conversationId === c.id && h.status === "abierta")) {
-      await store.createHandoff({ conversationId: c.id, patientId: c.patientId, reason: "tomada_desde_panel", summary: `Tomada desde el panel por ${req.user!.email}.` });
-    }
-    c.handedOff = true;
-    c.messages.push({ role: "system", text: `${req.user!.email} tomó la conversación: el asistente deja de responder.`, at: clock().toISOString() });
+    const at = clock().toISOString();
+    reopenConversation(c, at, `${req.user!.email} reabrió la conversación.`);
+    await takeOver(store, c, req.user!.email, at);
     await store.saveConversation(c);
     res.json({ ok: true });
   });
@@ -292,11 +360,10 @@ export function createPanelRouter(opts: PanelOptions): Router {
     const store = req.store!;
     const c = await store.getConversation(String(req.params.id));
     if (!c) return res.status(404).json({ error: "No existe" });
-    for (const h of (await store.listHandoffs()).filter((x) => x.conversationId === c.id && x.status === "abierta")) {
-      await store.updateHandoff(h.id, { status: "resuelta" });
-    }
+    await resolveHandoffs(store, c.id);
     c.handedOff = false;
     c.botPaused = false;
+    c.assignedTo = null;
     c.messages.push({ role: "system", text: `${req.user!.email} devolvió la conversación al asistente.`, at: clock().toISOString() });
     await store.saveConversation(c);
     res.json({ ok: true });
@@ -307,36 +374,72 @@ export function createPanelRouter(opts: PanelOptions): Router {
     const store = req.store!;
     const c = await store.getConversation(String(req.params.id));
     if (!c) return res.status(404).json({ error: "No existe" });
+    const at = clock().toISOString();
     c.botPaused = Boolean(req.body?.paused);
-    c.messages.push({ role: "system", text: `${req.user!.email} ${c.botPaused ? "pausó" : "reanudó"} el asistente en esta conversación.`, at: clock().toISOString() });
+    if (c.botPaused) reopenConversation(c, at, `${req.user!.email} reabrió la conversación.`);
+    c.messages.push({ role: "system", text: `${req.user!.email} ${c.botPaused ? "pausó" : "reanudó"} el asistente en esta conversación.`, at });
     await store.saveConversation(c);
     res.json({ ok: true, botPaused: c.botPaused });
+  });
+
+  /** Cierra la conversación a mano (las derivaciones abiertas pasan a resueltas). Se reabre si el paciente escribe. */
+  r.post("/conversation/:id/close", async (req: PanelRequest, res) => {
+    const store = req.store!;
+    const c = await store.getConversation(String(req.params.id));
+    if (!c) return res.status(404).json({ error: "No existe" });
+    if (closeConversation(c, "manual", clock().toISOString(), req.user!.email)) {
+      await resolveHandoffs(store, c.id);
+      await store.saveConversation(c);
+    }
+    res.json({ ok: true });
+  });
+
+  r.post("/conversation/:id/reopen", async (req: PanelRequest, res) => {
+    const store = req.store!;
+    const c = await store.getConversation(String(req.params.id));
+    if (!c) return res.status(404).json({ error: "No existe" });
+    if (reopenConversation(c, clock().toISOString(), `${req.user!.email} reabrió la conversación.`)) await store.saveConversation(c);
+    res.json({ ok: true });
   });
 
   // ===================================================================
   // Agenda de la semana y cambios de estado de los turnos
   // ===================================================================
 
+  /** Agenda de una semana (o de un día con ?days=1), con los datos para los filtros y el panel lateral. */
   r.get("/agenda", async (req: PanelRequest, res) => {
     const store = req.store!;
+    const days = req.query.days === "1" ? 1 : 7;
+    const now = toLocal(clock());
     const start = typeof req.query.from === "string"
       ? DateTime.fromISO(req.query.from, { zone: TZ() }).startOf("day")
-      : toLocal(clock()).startOf("week");
-    const end = start.plus({ days: 7 });
-    const [appts, patients] = await Promise.all([
+      : days === 1 ? now.startOf("day") : now.startOf("week");
+    const end = start.plus({ days });
+    const [appts, patients, convs] = await Promise.all([
       store.listAppointments({ from: start.toUTC().toISO()!, to: end.toUTC().toISO()! }),
       store.listPatients(),
+      store.listConversations(),
     ]);
     const byId = new Map(patients.map((p) => [p.id, p]));
+    const k = req.runtime!.profile.knowledge;
     res.json({
       from: start.toISODate(),
-      today: toLocal(clock()).toISODate(),
-      hours: req.runtime!.profile.knowledge.hours,
-      appointments: appts.filter((a) => a.status !== "reprogramada").map((a) => ({
-        id: a.id, date: toLocal(a.start).toISODate(), time: toLocal(a.start).toFormat("HH:mm"), end: toLocal(a.end).toFormat("HH:mm"),
-        patient: a.patientName, phone: mask(byId.get(a.patientId)?.phone ?? ""), channel: byId.get(a.patientId)?.channel ?? "",
-        treatment: a.treatment, status: a.status, confirmed: a.confirmedByPatient, demo: a.id.startsWith("demo_"),
-      })),
+      days,
+      today: now.toISODate(),
+      now: localKey(now),
+      hours: k.hours,
+      slotMinutes: req.runtime!.profile.slotMinutes,
+      treatments: k.treatments.map((t) => t.name),
+      appointments: appts.filter((a) => a.status !== "reprogramada").map((a) => {
+        const p = byId.get(a.patientId);
+        return {
+          ...apptView(a),
+          date: toLocal(a.start).toISODate(), time: toLocal(a.start).toFormat("HH:mm"), endTime: toLocal(a.end).toFormat("HH:mm"),
+          patientId: a.patientId, patient: displayName(p) ?? a.patientName, phone: mask(p?.contactPhone ?? p?.phone ?? ""),
+          channel: p?.channel ?? "", conversationId: convs.find((c) => c.patientId === a.patientId && c.channel !== "test")?.id ?? null,
+          reminder24: a.reminder24Sent, reminder2: a.reminder2Sent,
+        };
+      }),
     });
   });
 
@@ -413,25 +516,65 @@ export function createPanelRouter(opts: PanelOptions): Router {
       .filter((p) => p.channel !== "test")
       .map((p) => {
         const mine = appts.filter((a) => a.patientId === p.id && a.status !== "reprogramada");
-        const conv = convs.find((c) => c.patientId === p.id);
-        const lastPatientMsg = conv ? [...conv.messages].reverse().find((m) => m.role === "patient")?.at : undefined;
+        const conv = convs.find((c) => c.patientId === p.id && c.channel !== "test");
+        const lastPatientMsg = conv?.messages.findLast((m) => m.role === "patient")?.at;
         const next = mine.filter((a) => a.start >= now && ["confirmada", "pendiente"].includes(a.status))[0];
         const lastVisit = mine.filter((a) => a.start < now && a.status !== "cancelada").at(-1);
         return {
-          id: p.id, name: p.name, phone: mask(p.phone), channel: p.channel, source: p.source, createdAt: p.createdAt,
+          id: p.id, name: displayName(p), profileName: p.profileName, phone: mask(p.contactPhone ?? p.phone), channel: p.channel,
+          source: p.source, tags: p.tags, createdAt: p.createdAt,
           type: mine.length ? "paciente" : "consulta",
           appointments: mine.length,
           cancelled: mine.filter((a) => a.status === "cancelada").length,
-          nextAppointment: next ? toLocal(next.start).setLocale("es").toFormat("ccc dd/MM HH:mm") : null,
-          lastVisit: lastVisit ? toLocal(lastVisit.start).toISODate() : null,
+          nextAppointment: next?.start ?? null,
+          lastVisit: lastVisit?.start ?? null,
           lastContact: lastPatientMsg ?? p.createdAt,
           conversationId: conv?.id ?? null,
         };
       })
       .filter((p) => tipo === "todos" || p.type === tipo)
-      .filter((p) => !q || `${p.name ?? ""} ${p.phone} ${p.source ?? ""}`.toLowerCase().includes(q))
+      .filter((p) => !q || `${p.name ?? ""} ${p.phone} ${p.source ?? ""} ${p.tags.join(" ")}`.toLowerCase().includes(q))
       .sort((a, b) => b.lastContact.localeCompare(a.lastContact));
     res.json({ patients: list });
+  });
+
+  /** Ficha del paciente: datos editables, turnos, conversaciones y lista de espera. */
+  r.get("/patient/:id", async (req: PanelRequest, res) => {
+    const store = req.store!;
+    const p = await store.getPatient(String(req.params.id));
+    if (!p) return res.status(404).json({ error: "No existe" });
+    const [appts, convs, waitlist] = await Promise.all([
+      store.listAppointments({ patientId: p.id }), store.listConversations(), store.listWaitlist(["esperando", "ofrecido"]),
+    ]);
+    res.json({
+      patient: patientCard(p),
+      appointments: appts.filter((a) => a.status !== "reprogramada").map(apptView),
+      conversations: convs.filter((c) => c.patientId === p.id && c.channel !== "test").map((c) => {
+        const state = conversationState(c);
+        return { id: c.id, channel: c.channel, state, stateLabel: STATE_LABEL[state], lastAt: lastActivity(c) };
+      }),
+      waitlist: waitlist.filter((w) => w.patientId === p.id),
+    });
+  });
+
+  /** Edita la ficha. El nombre real se propaga a los turnos y a la lista de espera. */
+  r.put("/patient/:id", async (req: PanelRequest, res) => {
+    const store = req.store!;
+    const p = await store.getPatient(String(req.params.id));
+    if (!p) return res.status(404).json({ error: "No existe" });
+    const parsed = parsePatientPatch(req.body ?? {});
+    if (typeof parsed === "string") return res.status(400).json({ error: parsed });
+    try {
+      const { name, ...rest } = parsed;
+      if (name !== undefined && name !== p.name) {
+        if (name) await renamePatient(store, p.id, name);
+        else await store.updatePatient(p.id, { name: null });
+      }
+      if (Object.keys(rest).length) await store.updatePatient(p.id, rest);
+      res.json({ ok: true, patient: patientCard(await store.getPatient(p.id)) });
+    } catch (err) {
+      res.status(500).json({ error: `No se pudo guardar: ${(err as Error).message}` });
+    }
   });
 
   // ===================================================================
@@ -531,7 +674,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
     if (!text || !session) return res.status(400).json({ error: "Falta el mensaje o la sesión" });
     try {
       const reply = await req.runtime!.bot.handle({ channel: "test", userId: `probador:${session}`, text });
-      res.json({ messages: reply.messages, tools: reply.toolCalls.map((t) => t.name), metric: reply.metric ?? null });
+      res.json({ messages: reply.messages, interactive: reply.interactive ?? null, tools: reply.toolCalls.map((t) => t.name), metric: reply.metric ?? null });
     } catch (err) {
       console.error("[panel] probador:", err);
       res.status(500).json({ error: "El asistente no pudo responder" });
@@ -561,30 +704,29 @@ export function createPanelRouter(opts: PanelOptions): Router {
       rows = appts.map((a) => {
         const p = byId.get(a.patientId);
         const s = toLocal(a.start);
-        return [s.toISODate(), s.toFormat("HH:mm"), a.patientName, phone(p?.phone), CH[p?.channel ?? ""] ?? p?.channel, a.treatment, a.status,
+        return [s.toISODate(), s.toFormat("HH:mm"), displayName(p) ?? a.patientName, phone(p?.contactPhone ?? p?.phone), CH[p?.channel ?? ""] ?? p?.channel, a.treatment, a.status,
           a.confirmedByPatient, a.reminder24Sent, a.reminder2Sent, fdt(a.createdAt), fdt(a.cancelledAt)];
       });
     } else if (kind === "pacientes") {
       const [patients, appts, convs] = await Promise.all([store.listPatients(), store.listAppointments(), store.listConversations()]);
       const now = clock().toISOString();
-      headers = ["Paciente", "Teléfono", "Canal", "Origen", "Tipo", "Turnos", "Cancelados", "Próximo turno", "Última visita", "Último contacto", "Alta"];
+      headers = ["Paciente", "Teléfono", "Canal", "Origen", "Etiquetas", "Tipo", "Turnos", "Cancelados", "Próximo turno", "Última visita", "Último contacto", "Alta"];
       rows = patients.filter((p) => p.channel !== "test").map((p) => {
         const mine = appts.filter((a) => a.patientId === p.id && a.status !== "reprogramada");
         const next = mine.find((a) => a.start >= now && ["confirmada", "pendiente"].includes(a.status));
         const last = mine.filter((a) => a.start < now && a.status !== "cancelada").at(-1);
         const conv = convs.find((c) => c.patientId === p.id);
-        const lastMsg = conv ? [...conv.messages].reverse().find((m) => m.role === "patient")?.at : undefined;
-        return [p.name ?? "", phone(p.phone), CH[p.channel] ?? p.channel, p.source ?? "", mine.length ? "Con turno" : "Consulta",
+        const lastMsg = conv?.messages.findLast((m) => m.role === "patient")?.at;
+        return [displayName(p) ?? "", phone(p.contactPhone ?? p.phone), CH[p.channel] ?? p.channel, p.source ?? "", p.tags.join(", "), mine.length ? "Con turno" : "Consulta",
           mine.length, mine.filter((a) => a.status === "cancelada").length, fdt(next?.start), fdt(last?.start), fdt(lastMsg ?? p.createdAt), fdt(p.createdAt)];
       });
     } else if (kind === "conversaciones") {
       const [convs, patients, handoffs] = await Promise.all([store.listConversations(), store.listPatients(), store.listHandoffs()]);
       const byId = new Map(patients.map((p) => [p.id, p]));
-      const ESTADO: Record<string, string> = { bot: "Con el bot", persona: "Con una persona", pausada: "Bot en pausa" };
-      headers = ["Paciente", "Teléfono", "Canal", "Origen", "Estado", "Espera respuesta", "Mensajes", "Derivaciones", "Primer mensaje", "Último mensaje", "Último texto"];
+      headers = ["Paciente", "Teléfono", "Canal", "Origen", "Estado", "Atiende", "Mensajes", "Derivaciones", "Primer mensaje", "Último mensaje", "Último texto"];
       rows = convs.filter((c) => c.channel !== "test").map((c) => {
         const p = byId.get(c.patientId);
-        return [p?.name ?? "", phone(p?.phone), CH[c.channel] ?? c.channel, p?.source ?? "", ESTADO[conversationStatus(c)], waitingForHuman(c),
+        return [displayName(p) ?? "", phone(p?.contactPhone ?? p?.phone), CH[c.channel] ?? c.channel, p?.source ?? "", STATE_LABEL[conversationState(c)], c.assignedTo ?? "",
           c.messages.length, handoffs.filter((h) => h.conversationId === c.id).length, fdt(c.messages[0]?.at ?? c.createdAt),
           fdt(c.messages.at(-1)?.at ?? c.updatedAt), (c.messages.at(-1)?.text ?? "").replace(/\s+/g, " ").slice(0, 200)];
       });
@@ -625,6 +767,53 @@ export function createPanelRouter(opts: PanelOptions): Router {
   });
 
   return r;
+}
+
+/** Nombre para mostrar: el real; si no se sabe, el del perfil de WhatsApp. */
+function displayName(p: Patient | null | undefined): string | null {
+  return p?.name ?? p?.profileName ?? null;
+}
+
+/** Datos de la ficha del paciente (el teléfono del canal va enmascarado; el de contacto es editable). */
+function patientCard(p: Patient | null) {
+  if (!p) return null;
+  return {
+    id: p.id, name: p.name, profileName: p.profileName, displayName: displayName(p),
+    channelId: mask(p.phone), contactPhone: p.contactPhone ?? "", notes: p.notes, tags: p.tags,
+    source: p.source, channel: p.channel, createdAt: p.createdAt,
+  };
+}
+
+const apptView = (a: Appointment) => ({
+  id: a.id, start: a.start, end: a.end, treatment: a.treatment, status: a.status, confirmed: a.confirmedByPatient,
+});
+
+/** Valida lo editado en la ficha. Devuelve el cambio limpio o el problema. */
+export function parsePatientPatch(b: any): { name?: string | null; contactPhone?: string | null; notes?: string; tags?: string[] } | string {
+  const out: { name?: string | null; contactPhone?: string | null; notes?: string; tags?: string[] } = {};
+  if (b.name !== undefined) {
+    if (b.name !== null && typeof b.name !== "string") return "Nombre inválido";
+    const n = (b.name ?? "").replace(/\s+/g, " ").trim();
+    if (n && (n.length < 2 || n.length > 80)) return "El nombre debe tener entre 2 y 80 caracteres";
+    out.name = n || null;
+  }
+  if (b.contactPhone !== undefined) {
+    const t = String(b.contactPhone ?? "").trim();
+    if (t && !/^\+?[0-9][0-9 ()-]{5,22}$/.test(t)) return "Teléfono inválido: use solo números, espacios, guiones y el + inicial";
+    out.contactPhone = t || null;
+  }
+  if (b.notes !== undefined) {
+    if (typeof b.notes !== "string" || b.notes.length > 2000) return "Las notas admiten hasta 2000 caracteres";
+    out.notes = b.notes.trim();
+  }
+  if (b.tags !== undefined) {
+    if (!Array.isArray(b.tags)) return "Etiquetas inválidas";
+    const tags = [...new Set(b.tags.map((t: unknown) => String(t).replace(/\s+/g, " ").trim()).filter(Boolean))] as string[];
+    if (tags.length > 12) return "Hasta 12 etiquetas por paciente";
+    if (tags.some((t) => t.length > 24)) return "Cada etiqueta admite hasta 24 caracteres";
+    out.tags = tags;
+  }
+  return out;
 }
 
 /** En el panel no se muestra el teléfono completo. */
@@ -670,5 +859,5 @@ export function validateKnowledge(k: any): string | null {
   if (k.tone !== undefined && (typeof k.tone !== "string" || k.tone.length > 1000)) return "El tono es demasiado largo";
   if (!k.promo || typeof k.promo.name !== "string" || typeof k.promo.detail !== "string") return "Promoción inválida";
   if (!Array.isArray(k.professionals)) return "Profesionales inválidos";
-  return null;
+  return validateMenu(k.menu);
 }

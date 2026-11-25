@@ -99,6 +99,10 @@ export const config = {
     followupAfterHours: num("FOLLOWUP_AFTER_HOURS", 20),
   },
 
+  inbox: {
+    /** Horas sin mensajes para cerrar una conversación (se reabre si el paciente vuelve a escribir). */
+    idleHours: num("CONVERSATION_IDLE_HOURS", 24),
+  },
   waitlist: {
     /** Minutos que se le guarda el horario liberado a quien se lo ofrecemos, antes de pasar al siguiente. */
     offerMinutes: num("WAITLIST_OFFER_MINUTES", 30),

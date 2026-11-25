@@ -13,6 +13,17 @@ import { kb } from "../data/knowledge.js";
  */
 export const toolDefs: ToolDef[] = [
   {
+    name: "guardar_nombre_paciente",
+    description:
+      "Guarda el nombre y apellido REAL del paciente apenas lo diga (por ejemplo, cuando se lo pide para agendar). No use el nombre del perfil de WhatsApp sin que el paciente lo confirme. El nombre se ve en la agenda y en la ficha del paciente.",
+    parameters: {
+      type: "object",
+      properties: { nombre_completo: { type: "string", description: "Nombre y apellido tal como los dio el paciente." } },
+      required: ["nombre_completo"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "buscar_horarios_disponibles",
     description:
       "Consulta la agenda real del consultorio y devuelve horarios libres. Úsela SIEMPRE antes de ofrecer horarios; nunca ofrezca un horario que no haya devuelto esta herramienta.",
@@ -129,6 +140,28 @@ export const toolDefs: ToolDef[] = [
   },
 ];
 
+/** Normaliza un nombre dicho por el paciente: sin espacios de más, máx. 80 caracteres, con mayúscula inicial. */
+export function cleanName(raw: string): string {
+  const s = raw.replace(/\s+/g, " ").replace(/[^\p{L}\p{M} .'-]/gu, "").trim().slice(0, 80);
+  if (s.length < 2) return "";
+  return s.split(" ").map((w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
+}
+
+/**
+ * Cambia el nombre real del paciente y lo propaga a sus turnos y a la lista de espera:
+ * así el cambio se ve igual en el chat, la agenda y la lista de pacientes.
+ */
+export async function renamePatient(store: Store, patientId: string, name: string): Promise<Patient> {
+  const p = await store.updatePatient(patientId, { name });
+  for (const a of await store.listAppointments({ patientId })) {
+    if (a.patientName !== name) await store.updateAppointment(a.id, { patientName: name });
+  }
+  for (const w of await store.listWaitlist(["esperando", "ofrecido"])) {
+    if (w.patientId === patientId && w.patientName !== name) await store.updateWaitlist(w.id, { patientName: name });
+  }
+  return p;
+}
+
 /** Cerrojo simple: evita que dos reservas simultáneas tomen el mismo horario. */
 let bookingChain: Promise<unknown> = Promise.resolve();
 function withBookingLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -195,7 +228,7 @@ export function makeExecutor(ctx: ToolContext) {
         start: start.toISO()!,
         end: end.toISO()!,
         summary: `${treatment} — ${name}`,
-        description: `Paciente: ${name}\nTeléfono: ${ctx.patient.phone}\nCanal: ${ctx.conversation.channel}\nId de cita: ${appt.id}\nReservado por el asistente virtual (demo).`,
+        description: `Paciente: ${name}\nTeléfono: ${ctx.patient.phone}\nCanal: ${ctx.conversation.channel}\nId de cita: ${appt.id}\nReservado por el asistente virtual.`,
       });
       return await ctx.store.updateAppointment(appt.id, { calendarEventId: ev.id });
     } catch (err) {
@@ -224,6 +257,13 @@ export function makeExecutor(ctx: ToolContext) {
 
   return async function execute(name: string, input: Record<string, unknown>): Promise<unknown> {
     switch (name) {
+      case "guardar_nombre_paciente": {
+        const nombre = cleanName(String(input.nombre_completo ?? ""));
+        if (!nombre) return { ok: false, error: "nombre_invalido", mensaje: "Pida el nombre y apellido nuevamente." };
+        ctx.patient = await renamePatient(ctx.store, ctx.patient.id, nombre);
+        return { ok: true, nombre };
+      }
+
       case "buscar_horarios_disponibles": {
         const slots = await avail.freeSlots(
           String(input.fecha_desde), String(input.fecha_hasta), (input.franja as Franja) ?? "cualquiera",

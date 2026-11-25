@@ -14,6 +14,7 @@ import { clearCookie, createAuth, isSecure } from "./auth.js";
 import { buildRuntimes, loadClinics, runtimeByPhoneNumberId, type ClinicRuntime } from "./clinics/registry.js";
 import { withClinic } from "./clinics/context.js";
 import { SupabaseStore } from "./services/supabaseStore.js";
+import { closeIdleConversations } from "./bot/conversationState.js";
 
 /**
  * Servidor HTTP: simulador web, webhook de WhatsApp, panel del consultorio y su API.
@@ -181,6 +182,20 @@ if (config.reminders.enabled) {
   remindersStatus = `cada ${config.reminders.intervalSec} s · seguimiento de leads a las ${config.reminders.followupAfterHours} h`;
 }
 
+// --- Cierre automático de conversaciones sin movimiento (se reabren si el paciente vuelve a escribir) ---
+const closeIdle = async () => {
+  for (const rt of runtimes.values()) {
+    try {
+      const n = await closeIdleConversations(rt.store, new Date(), config.inbox.idleHours);
+      if (n) console.log(`[bandeja · ${rt.profile.id}] ${n} conversación(es) cerrada(s) por inactividad`);
+    } catch (err) {
+      console.error(`[bandeja · ${rt.profile.id}]`, (err as Error).message);
+    }
+  }
+};
+setInterval(closeIdle, 5 * 60_000);
+setTimeout(closeIdle, 8000);
+
 const validSession = (s: unknown): s is string => typeof s === "string" && /^web:[a-z0-9-]{4,40}$/i.test(s);
 
 // El simulador consulta esta bandeja para mostrar los mensajes que el bot envía por su cuenta.
@@ -261,6 +276,7 @@ app.post("/api/chat", clinicRoute(async (rt, req, res) => {
     });
     res.json({
       messages: r.messages,
+      interactive: r.interactive ?? null,
       handedOff: r.handedOff,
       metric: r.metric ?? null,
       // `when` = horario afectado, para que la agenda salte a esa semana y lo resalte.

@@ -187,7 +187,8 @@ try {
     const sb = await (await panel(`/summary?clinic=${CLINIC_B}`, c)).json();
     assert.equal(sb.clinic.id, CLINIC_B);
     const idsB = new Set((await B.store.listConversations()).map((x) => x.id));
-    assert.ok(sb.conversations.every((x: any) => idsB.has(x.id)));
+    const inboxB = await (await panel(`/conversations?clinic=${CLINIC_B}&filtro=todas`, c)).json();
+    assert.ok(inboxB.conversations.length > 0 && inboxB.conversations.every((x: any) => idsB.has(x.id)));
   });
 } finally {
   server.close();

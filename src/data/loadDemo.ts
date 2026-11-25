@@ -65,12 +65,16 @@ export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarSer
     const c = clinic.id;
     const chunks = <T>(xs: T[], n = 300) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
     for (const part of chunks(data.patients)) {
-      must(await db.from("patients").insert(part.map((p) => ({ id: p.id, clinic_id: c, phone: p.phone, name: p.name, channel: p.channel, source: p.source, created_at: p.createdAt }))), "pacientes");
+      must(await db.from("patients").insert(part.map((p) => ({
+        id: p.id, clinic_id: c, phone: p.phone, name: p.name, profile_name: p.profileName, contact_phone: p.contactPhone,
+        notes: p.notes, tags: p.tags, channel: p.channel, source: p.source, created_at: p.createdAt,
+      }))), "pacientes");
     }
     for (const part of chunks(data.conversations)) {
       must(await db.from("conversations").insert(part.map((v) => ({
         id: v.id, clinic_id: c, patient_id: v.patientId, channel: v.channel, llm_provider: v.llmProvider, messages: v.messages,
-        privacy_shown: true, handed_off: v.handedOff, bot_paused: false, created_at: v.createdAt, updated_at: v.updatedAt,
+        privacy_shown: true, handed_off: v.handedOff, bot_paused: v.botPaused, assigned_to: v.assignedTo, closed_at: v.closedAt,
+        closed_reason: v.closedReason, created_at: v.createdAt, updated_at: v.updatedAt,
       }))), "conversaciones");
     }
     for (const part of chunks(data.appointments)) {

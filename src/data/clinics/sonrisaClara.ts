@@ -3,10 +3,10 @@ import type { ClinicKnowledge } from "../../clinics/types.js";
 /** Clínica A: base de conocimiento FICTICIA (solo para la demo). */
 export const sonrisaClara: ClinicKnowledge = {
   name: "Clínica Dental Sonrisa Clara",
-  tagline: "Consultorio odontológico (demo con datos ficticios)",
-  address: "Av. Siempreviva 742, piso 2, consultorio B (dirección ficticia)",
+  tagline: "Consultorio odontológico",
+  address: "Av. Siempreviva 742, piso 2, consultorio B",
   reference: "A media cuadra de la plaza central. Hay estacionamiento medido en la cuadra.",
-  phone: "+54 11 0000-0000 (ficticio)",
+  phone: "+54 11 0000-0000",
   email: "turnos@sonrisaclara.demo",
   professionals: [
     "Dra. Laura Méndez — odontología general y estética",
@@ -35,7 +35,28 @@ export const sonrisaClara: ClinicKnowledge = {
     detail: "Limpieza dental + consulta de control a USD 29 (en lugar de USD 65). Válida para pacientes nuevos hasta el 31/12.",
   },
   payments: "Efectivo, transferencia y tarjetas de débito y crédito (hasta 3 cuotas sin interés con tarjetas seleccionadas).",
-  insurance: "Trabajamos con las obras sociales ficticias DemoSalud y PlanSonrisa. Con otras coberturas, se atiende de forma particular y se entrega factura para reintegro.",
+  insurance: "Trabajamos con las obras sociales DemoSalud y PlanSonrisa. Con otras coberturas, se atiende de forma particular y se entrega factura para reintegro.",
   cancellationPolicy: "Pedimos avisar con al menos 2 horas de anticipación si no puede asistir. Reprogramar no tiene costo.",
   emergencies: "Ante dolor intenso, sangrado que no se detiene, hinchazón de la cara o un golpe fuerte, debe acudir a una guardia odontológica u hospital de inmediato.",
+  faq: [
+    { q: "¿Atienden a niños?", a: "Sí, atendemos niños desde los 3 años. La primera consulta es con la Dra. Méndez y dura 30 minutos." },
+    { q: "¿Tienen estacionamiento?", a: "No tenemos estacionamiento propio, pero hay estacionamiento medido en la cuadra y una playa a media cuadra." },
+    { q: "¿Puedo ir con mi obra social?", a: "Trabajamos con DemoSalud y PlanSonrisa. Con otras coberturas se atiende de forma particular y entregamos factura para el reintegro." },
+    { q: "¿Cuánto dura un blanqueamiento?", a: "El blanqueamiento en consultorio dura unos 60 minutos y el resultado se mantiene entre 1 y 2 años con buena higiene." },
+    { q: "¿Hacen planes de pago?", a: "Sí: hasta 3 cuotas sin interés con tarjetas seleccionadas. Para tratamientos largos armamos un plan en la consulta." },
+    { q: "¿Qué tengo que llevar a la primera consulta?", a: "Su documento, la credencial de la obra social si tiene, y radiografías o estudios previos si los hay." },
+  ],
+  menu: {
+    enabled: true,
+    intro: "¿En qué le puedo ayudar? Elija una opción o escríbame su consulta.",
+    button: "Ver opciones",
+    options: [
+      { id: "turno", label: "📅 Sacar un turno", description: "Ver horarios libres y reservar", kind: "consulta", text: "Quiero sacar un turno" },
+      { id: "precios", label: "💲 Precios", description: "Tratamientos y valores", kind: "consulta", text: "¿Cuáles son los precios de los tratamientos?" },
+      { id: "promo", label: "🎁 Promo de noviembre", description: "La promoción vigente", kind: "consulta", text: "Quiero saber de la promoción" },
+      { id: "horarios", label: "📍 Horarios y dirección", description: "Cuándo atendemos y cómo llegar", kind: "consulta", text: "¿Qué horarios tienen y dónde quedan?" },
+      { id: "cambiar", label: "🔁 Cambiar o cancelar", description: "Mover o cancelar un turno", kind: "consulta", text: "Quiero cambiar o cancelar mi turno" },
+      { id: "persona", label: "🙋 Hablar con alguien", description: "Le responde una persona del equipo", kind: "consulta", text: "Quiero hablar con una persona" },
+    ],
+  },
 };

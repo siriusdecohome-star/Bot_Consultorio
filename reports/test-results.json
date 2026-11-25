@@ -1,11 +1,11 @@
 {
-  "runAt": "2026-11-24T21:14:12.160Z",
+  "runAt": "2026-11-25T22:09:49.819Z",
   "provider": "mock",
   "model": "reglas-v1",
   "passed": 8,
   "total": 8,
-  "avgTurnMs": 1.6085937499999998,
-  "p95Ms": 7.2960000000000065,
+  "avgTurnMs": 1.78443125,
+  "p95Ms": 7.6888000000000005,
   "avgCostUsd": 0,
   "results": [
     {
@@ -18,7 +18,7 @@
         {
           "patient": "Quiero un turno para mañana a las 9",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\nLas *09:00* del martes 24/11 no están disponibles. Para el *martes 24/11* tengo libres:\n\n1️⃣ 10:00\n2️⃣ 10:30\n3️⃣ 11:30\n4️⃣ 12:00\n\n¿Cuál le queda mejor? Respóndame con el número.\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 7.2960000000000065,
+          "ms": 7.6888000000000005,
           "tools": [
             "buscar_horarios_disponibles",
             "buscar_horarios_disponibles"
@@ -27,14 +27,14 @@
         {
           "patient": "¿Y a las 9:00 no puede ser?",
           "bot": "Las *09:00* del martes 24/11 no están disponibles. Para el *martes 24/11* tengo libres:\n\n1️⃣ 10:00\n2️⃣ 10:30\n3️⃣ 11:30\n4️⃣ 12:00\n\n¿Cuál le queda mejor? Respóndame con el número.",
-          "ms": 3.8212999999999937,
+          "ms": 4.251899999999992,
           "tools": [
             "buscar_horarios_disponibles",
             "buscar_horarios_disponibles"
           ]
         }
       ],
-      "latencyMs": 11,
+      "latencyMs": 12,
       "avgTurnMs": 6,
       "costUsd": 0,
       "inputTokens": 0,
@@ -50,7 +50,7 @@
         {
           "patient": "Perdón, no llego a las 11:30, tengo que cancelar",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\nListo, cancelé su turno del *lunes 23/11 a las 11:30* y el horario quedó libre. ¡Gracias por avisar!\n\n¿Lo reprogramamos? Para el *lunes 23/11* tengo estos horarios:\n\n1️⃣ 11:00\n2️⃣ 11:30\n3️⃣ 12:00\n4️⃣ 12:30\n\n¿Cuál le queda mejor? Respóndame con el número.\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 2.3329000000000093,
+          "ms": 2.8575000000000017,
           "tools": [
             "ver_citas_paciente",
             "cancelar_cita",
@@ -58,8 +58,8 @@
           ]
         }
       ],
-      "latencyMs": 3,
-      "avgTurnMs": 2,
+      "latencyMs": 4,
+      "avgTurnMs": 3,
       "costUsd": 0,
       "inputTokens": 0,
       "outputTokens": 0
@@ -74,7 +74,7 @@
         {
           "patient": "eeh lo del dientee q decian?? ese",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\nDisculpe, no estoy seguro de haber entendido. ¿Quiere *sacar un turno*, consultar *precios u horarios*, o *hablar con una persona*?\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 0.9883999999999986,
+          "ms": 1.1322000000000116,
           "tools": [
             "buscar_en_documentos"
           ]
@@ -96,13 +96,13 @@
         {
           "patient": "Hola, quiero saber el precio del blanqueamiento",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\n*Blanqueamiento en consultorio*: USD 180 (60 min (se agenda en dos turnos seguidos)). Requiere consulta previa.\n\n¿Quiere que le busque un turno?\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 0.4040999999999997,
+          "ms": 0.4164000000000101,
           "tools": []
         },
         {
           "patient": "Prefiero hablar con una persona, por favor",
           "bot": "¡Por supuesto! 🙌 Ya le pasé su consulta a una persona del equipo, que le va a responder por este mismo chat en horario de atención.",
-          "ms": 0.307699999999997,
+          "ms": 0.3387000000000171,
           "tools": [
             "derivar_a_humano"
           ]
@@ -110,7 +110,7 @@
         {
           "patient": "¿Hola?",
           "bot": "Su mensaje fue recibido. Una persona del equipo le responderá a la brevedad. 🙌",
-          "ms": 0.0379999999999967,
+          "ms": 0.04769999999999186,
           "tools": []
         }
       ],
@@ -130,7 +130,7 @@
         {
           "patient": "Hola, necesito un turno lo antes posible",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\n¡Con gusto! 📅 Para el *martes 24/11* tengo estos horarios libres:\n\n1️⃣ 10:00\n2️⃣ 10:30\n3️⃣ 11:30\n4️⃣ 12:00\n\n¿Cuál le queda mejor? Respóndame con el número.\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 2.3322999999999894,
+          "ms": 2.4091999999999985,
           "tools": [
             "buscar_horarios_disponibles"
           ]
@@ -138,7 +138,7 @@
         {
           "patient": "¿Puede ser el domingo a las 10?",
           "bot": "El *domingo 29/11* no tengo turnos: atendemos lunes a viernes de 9:00 a 13:00 y de 14:00 a 18:00. Sábados de 9:00 a 13:00. Domingos y feriados, cerrado.\n\nPara el *lunes 30/11* tengo libres:\n\n1️⃣ 09:00\n2️⃣ 09:30\n3️⃣ 10:00\n4️⃣ 10:30\n\n¿Cuál le queda mejor? Respóndame con el número.",
-          "ms": 1.8614000000000033,
+          "ms": 1.7149,
           "tools": [
             "buscar_horarios_disponibles",
             "buscar_horarios_disponibles"
@@ -161,14 +161,14 @@
         {
           "patient": "Quiero un turno para el miércoles a la mañana",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\n¡Con gusto! 📅 Para el *miércoles 25/11* tengo estos horarios libres:\n\n1️⃣ 09:00\n2️⃣ 09:30\n3️⃣ 10:00\n4️⃣ 11:30\n\n¿Cuál le queda mejor? Respóndame con el número.\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 1.433099999999996,
+          "ms": 1.7569000000000017,
           "tools": [
             "buscar_horarios_disponibles"
           ]
         }
       ],
       "latencyMs": 3,
-      "avgTurnMs": 1,
+      "avgTurnMs": 2,
       "costUsd": 0,
       "inputTokens": 0,
       "outputTokens": 0
@@ -183,7 +183,7 @@
         {
           "patient": "Quiero un turno para el miércoles a la mañana",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\n¡Con gusto! 📅 Para el *miércoles 25/11* tengo estos horarios libres:\n\n1️⃣ 09:00\n2️⃣ 09:30\n3️⃣ 10:00\n4️⃣ 11:00\n\n¿Cuál le queda mejor? Respóndame con el número.\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 1.3016000000000076,
+          "ms": 1.2951999999999941,
           "tools": [
             "buscar_horarios_disponibles"
           ]
@@ -191,21 +191,22 @@
         {
           "patient": "1",
           "bot": "¡Excelente! Para confirmar la reserva, ¿me indica su nombre y apellido?",
-          "ms": 0.27190000000001646,
+          "ms": 0.30060000000000286,
           "tools": []
         },
         {
           "patient": "Tomás Herrera",
           "bot": "¡Listo, Tomás! ✅ Su turno quedó confirmado:\n\n📅 *Miércoles 25/11 a las 09:00*\n🦷 Consulta y diagnóstico\n📍 Av. Siempreviva 742, piso 2, consultorio B\n\nLe enviaré un recordatorio el día anterior. Si necesita cambiarlo, escríbame cuando quiera.",
-          "ms": 0.592000000000013,
+          "ms": 1.295899999999989,
           "tools": [
+            "guardar_nombre_paciente",
             "crear_cita"
           ]
         },
         {
           "patient": "Uy, mejor cambiarlo para el jueves a la tarde",
           "bot": "¡Claro! Su turno actual es el *miércoles 25/11 a las 09:00*. Para el *jueves 26/11* tengo libres:\n\n1️⃣ 14:30\n2️⃣ 15:00\n3️⃣ 15:30\n4️⃣ 16:00\n\n¿Cuál le queda mejor? Respóndame con el número.",
-          "ms": 1.3789999999999907,
+          "ms": 1.4801999999999964,
           "tools": [
             "ver_citas_paciente",
             "buscar_horarios_disponibles"
@@ -214,13 +215,13 @@
         {
           "patient": "La 2",
           "bot": "¡Listo! ✅ Su turno ahora es el *jueves 26/11 a las 15:00*. El horario anterior quedó libre.\n\nLe enviaré un recordatorio el día anterior.",
-          "ms": 0.7227999999999781,
+          "ms": 0.9007000000000005,
           "tools": [
             "reprogramar_cita"
           ]
         }
       ],
-      "latencyMs": 4,
+      "latencyMs": 5,
       "avgTurnMs": 1,
       "costUsd": 0,
       "inputTokens": 0,
@@ -236,7 +237,7 @@
         {
           "patient": "¿Qué antibiótico me tomo para una muela que me molesta?",
           "bot": "¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones.\n\nDisculpe, no estoy seguro de haber entendido. ¿Quiere *sacar un turno*, consultar *precios u horarios*, o *hablar con una persona*?\n\n_🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._",
-          "ms": 0.6550000000000011,
+          "ms": 0.6640999999999906,
           "tools": [
             "buscar_en_documentos"
           ]

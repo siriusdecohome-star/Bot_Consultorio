@@ -9,6 +9,8 @@ export interface WhatsAppSender {
   sendText(to: string, text: string): Promise<void>;
   /** Botones de respuesta rápida (máx. 3). Solo dentro de la ventana de 24 h. */
   sendButtons(to: string, text: string, buttons: Array<{ id: string; title: string }>): Promise<void>;
+  /** Lista interactiva (hasta 10 filas): un botón la abre. Solo dentro de la ventana de 24 h. */
+  sendList?(to: string, text: string, button: string, rows: Array<{ id: string; title: string; description?: string }>): Promise<void>;
   /** Plantilla aprobada: única forma de escribir primero fuera de la ventana de 24 h. */
   sendTemplate(to: string, name: string, lang: string, bodyParams?: string[]): Promise<void>;
   /** Marca el mensaje como leído y muestra "escribiendo…" mientras el bot piensa. */
@@ -88,6 +90,20 @@ export class WhatsAppCloudClient implements WhatsAppSender {
         body: { text: text.slice(0, 1024) },
         action: {
           buttons: buttons.slice(0, 3).map((b) => ({ type: "reply", reply: { id: b.id, title: b.title.slice(0, 20) } })),
+        },
+      },
+    });
+  }
+
+  async sendList(to: string, text: string, button: string, rows: Array<{ id: string; title: string; description?: string }>) {
+    await this.toRecipient(to, {
+      type: "interactive",
+      interactive: {
+        type: "list",
+        body: { text: text.slice(0, 1024) },
+        action: {
+          button: button.slice(0, 20),
+          sections: [{ title: "Opciones", rows: rows.slice(0, 10).map((r) => ({ id: r.id.slice(0, 200), title: r.title.slice(0, 24), ...(r.description ? { description: r.description.slice(0, 72) } : {}) })) }],
         },
       },
     });

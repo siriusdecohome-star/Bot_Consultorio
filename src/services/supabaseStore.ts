@@ -1,7 +1,7 @@
 ﻿import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   DEFAULT_CLINIC_ID, SlotTakenError,
-  type Appointment, type AppointmentFilter, type Channel, type Conversation, type Handoff, type Patient,
+  type Appointment, type AppointmentFilter, type Channel, type Conversation, type Handoff, type Patient, type PatientPatch,
   type Store, type TurnMetric, type ClinicDocument, type DocumentHit, type WaitlistEntry, type WaitlistStatus,
 } from "./store.js";
 import type { ClinicKnowledge } from "../clinics/types.js";
@@ -20,11 +20,23 @@ function check<T>(res: { data: T; error: { message: string; code?: string } | nu
 
 // --- Conversión fila ↔ objeto (snake_case en la base, camelCase en el código) ---
 const toPatient = (r: any): Patient => ({
-  id: r.id, phone: r.phone, name: r.name, channel: r.channel, source: r.source, createdAt: r.created_at,
+  id: r.id, phone: r.phone, name: r.name, profileName: r.profile_name ?? null, contactPhone: r.contact_phone ?? null,
+  notes: r.notes ?? "", tags: r.tags ?? [], channel: r.channel, source: r.source, createdAt: r.created_at,
 });
+const patientPatch = (p: PatientPatch) => {
+  const m: Record<string, unknown> = {};
+  if (p.name !== undefined) m.name = p.name;
+  if (p.source !== undefined) m.source = p.source;
+  if (p.profileName !== undefined) m.profile_name = p.profileName;
+  if (p.contactPhone !== undefined) m.contact_phone = p.contactPhone;
+  if (p.notes !== undefined) m.notes = p.notes;
+  if (p.tags !== undefined) m.tags = p.tags;
+  return m;
+};
 const toConv = (r: any): Conversation => ({
   id: r.id, patientId: r.patient_id, channel: r.channel, llmProvider: r.llm_provider, llmState: r.llm_state,
   messages: r.messages, privacyShown: r.privacy_shown, handedOff: r.handed_off, botPaused: r.bot_paused ?? false,
+  assignedTo: r.assigned_to ?? null, closedAt: r.closed_at ?? null, closedReason: r.closed_reason ?? null,
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const toAppt = (r: any): Appointment => ({
@@ -67,6 +79,7 @@ const waitPatch = (p: Partial<WaitlistEntry>) => {
   if (p.toDate !== undefined) m.to_date = p.toDate;
   if (p.franja !== undefined) m.franja = p.franja;
   if (p.treatment !== undefined) m.treatment = p.treatment;
+  if (p.patientName !== undefined) m.patient_name = p.patientName;
   return m;
 };
 
@@ -110,12 +123,12 @@ export class SupabaseStore implements Store {
     const found = check(await this.from("patients").select("*").eq("clinic_id", this.clinicId).eq("phone", phone).maybeSingle());
     if (found) return toPatient(found);
     const row = check(await this.from("patients")
-      .upsert({ id: newId("pac"), clinic_id: this.clinicId, phone, channel, source }, { onConflict: "clinic_id,phone", ignoreDuplicates: false })
+      .upsert({ id: newId("pac"), clinic_id: this.clinicId, phone, channel, source, contact_phone: channel === "whatsapp" ? phone : null }, { onConflict: "clinic_id,phone", ignoreDuplicates: false })
       .select().single());
     return toPatient(row);
   }
-  async updatePatient(id: string, patch: Partial<Pick<Patient, "name" | "source">>) {
-    return toPatient(check(await this.from("patients").update(patch).eq("clinic_id", this.clinicId).eq("id", id).select().single()));
+  async updatePatient(id: string, patch: PatientPatch) {
+    return toPatient(check(await this.from("patients").update(patientPatch(patch)).eq("clinic_id", this.clinicId).eq("id", id).select().single()));
   }
   async getPatient(id: string) {
     const r = check(await this.from("patients").select("*").eq("clinic_id", this.clinicId).eq("id", id).maybeSingle());
@@ -142,7 +155,8 @@ export class SupabaseStore implements Store {
   async saveConversation(c: Conversation) {
     check(await this.from("conversations").update({
       llm_provider: c.llmProvider, llm_state: c.llmState, messages: c.messages,
-      privacy_shown: c.privacyShown, handed_off: c.handedOff, bot_paused: c.botPaused, updated_at: new Date().toISOString(),
+      privacy_shown: c.privacyShown, handed_off: c.handedOff, bot_paused: c.botPaused,
+      assigned_to: c.assignedTo, closed_at: c.closedAt, closed_reason: c.closedReason, updated_at: new Date().toISOString(),
     }).eq("clinic_id", this.clinicId).eq("id", c.id));
   }
   async listConversations() {

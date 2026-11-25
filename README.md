@@ -32,7 +32,10 @@ Cada clínica tiene sus datos separados en **Supabase con RLS** y un **panel** p
 | Lista de espera | Si no hay horario, anota al paciente con su rango y franja. Cuando alguien cancela, le ofrece el hueco por WhatsApp (**Lo tomo · No, gracias**); si no responde a tiempo, pasa al siguiente. |
 | Reactivación | Invita a un control a quien no viene hace 6 meses o más, como máximo una vez cada 90 días. |
 | Seguimiento de leads | Escribe una vez a quien consultó por una promo y no agendó. |
-| Pasar a una persona | Deriva con un resumen; desde el panel se toma la conversación, se pausa el bot o se devuelve al bot. |
+| Menú inicial | Un saludo recibe un menú con botones (hasta 3 opciones) o una lista de WhatsApp (hasta 10), editable en Aprendizaje y sin costo de IA. |
+| Pasar a una persona | Deriva con un resumen; desde la bandeja se toma la conversación, se pausa el bot o se devuelve al bot. |
+| Bandeja tipo WhatsApp Web | Lista, chat y ficha del paciente en tres paneles. Cada conversación tiene un estado (**Espera respuesta, Con el bot, Con una persona, Pausada, Cerrada**), con filtros y contadores; cada mensaje muestra quién lo escribió. Se cierra sola por inactividad o al confirmar o cancelar un turno, y se reabre si el paciente vuelve a escribir. |
+| Ficha del paciente | Nombre real (lo pide el bot y lo guarda con una herramienta), nombre de WhatsApp aparte, teléfono de contacto, notas y etiquetas. Los cambios se ven en el chat, la agenda y la lista de pacientes. |
 | Multiempresa | Dos clínicas de ejemplo con datos, conocimiento, horarios y agenda separados; el webhook elige la clínica por el número de WhatsApp. |
 | Panel del consultorio | Login con Supabase Auth, roles admin y recepción, selector de clínica, exportación a CSV para Excel. |
 | Zona de aprendizaje | El admin edita lo que sabe el asistente y sube PDF o Word; el cambio rige desde el mensaje siguiente. Incluye un probador. |
@@ -220,6 +223,7 @@ Todas van en `.env` (local) o en el panel del proveedor (servidor). Nunca en el 
 | `CLINIC_TIMEZONE`, `SLOT_MINUTES` | Zona horaria y duración del turno de la clínica principal (al cargarla con `npm run seed`) | `America/Argentina/Buenos_Aires`, 30 |
 | `REMINDERS_*`, `FOLLOWUP_AFTER_HOURS` | Recordatorios y seguimiento | Activados, cada 60 s, a las 20 h |
 | `WAITLIST_OFFER_MINUTES` | Cuánto se guarda un horario ofrecido | 30 |
+| `CONVERSATION_IDLE_HOURS` | Horas sin mensajes para cerrar una conversación (se reabre si el paciente escribe) | 24 |
 | `REACTIVATION_ENABLED`, `REACTIVATION_MONTHS`, `REACTIVATION_MAX_PER_SWEEP` | Reactivación | Activada, 6 meses, 5 por revisión |
 | `PRIVACY_NOTICE` | `inline`, `separate` u `off` | `inline` |
 | `NODE_ENV` | `production` activa los controles de arranque | — |
@@ -310,6 +314,7 @@ npm test
 | `test:clinics` | 12 | Datos separados, doble reserva por clínica, agenda etiquetada, webhook por número, acceso por rol |
 | `test:panel` | 19 | Bandeja (tomar, pausar, devolver), agenda, pacientes, estadísticas, costos, conocimiento, PDF con búsqueda, probador, CSV |
 | `test:waitlist` | 10 | Lista de espera (ofrecer, aceptar, rechazar, vencer, horario tomado) y reactivación |
+| `test:inbox` | 23 | Cada estado de la bandeja y sus transiciones, cierre automático y reapertura, contadores coherentes, ficha editable, nombre real con herramienta, menú con botones o lista, horarios editados que limitan los turnos ofrecidos, datos de ejemplo |
 | `test:cases` | 8 | Los casos de calidad, con tiempo de respuesta y costo → [reports/test-results.md](reports/test-results.md) |
 | `test:integration` | 8 pasos | Contra Supabase y Google Calendar reales: reserva, doble reserva, índice por clínica, búsqueda de documentos y **RLS** con la sesión de una recepcionista |
 
@@ -337,13 +342,13 @@ Estimación por conversación típica: 6 mensajes del paciente, ~1,6 llamadas al
 | Claude Haiku 5.5 | 0,10 / 0,50 | ~USD 0,001–0,003 |
 | Modo sin IA | — | 0 |
 
-- **En el panel:** la pestaña Costos registra tokens y USD de cada mensaje y proyecta el mes. Los datos de ejemplo simulan Claude Haiku 5.5 y figuran como «simulado».
+- **En el panel:** la pestaña Costos registra tokens y USD de cada mensaje y proyecta el mes. Los datos de ejemplo simulan Claude Haiku 5.5 y se muestran como **estimado**, separados de lo medido.
 - **Infraestructura de la demo:** Supabase, Google Calendar, el número de prueba de WhatsApp y el túnel de Cloudflare, todos en planes gratuitos.
 - **En producción:** WhatsApp cobra los mensajes que inicia el negocio (recordatorios, ofertas, reactivación) según el país y la categoría de la plantilla.
 
 ## Datos de ejemplo
 
-Todo es **ficticio**: nombres con «(demo)», teléfonos de rangos ficticios, ids `demo_…` y correos con el dominio reservado `.test`.
+Todo es **ficticio**, aunque con aspecto real: nombres y mensajes variados, teléfonos de rangos no asignados, ids `demo_…` (los recordatorios, la lista de espera y las respuestas de recepción no les envían nada) y correos con el dominio reservado `.test`. Hay conversaciones en todos los estados de la bandeja, preguntas frecuentes cargadas y métricas coherentes (nunca más pacientes nuevos que consultas).
 
 - **Clínicas:**
   - Clínica Dental Sonrisa Clara ([src/data/clinics/sonrisaClara.ts](src/data/clinics/sonrisaClara.ts)).

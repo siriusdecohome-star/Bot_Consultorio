@@ -4,13 +4,14 @@ import type { ClinicProfile } from "../clinics/types.js";
 import { config } from "../config.js";
 import type { LlmProvider, ToolCallLog } from "../llm/types.js";
 import type { CalendarService } from "../services/calendar.js";
-import type { Channel, ChatMessage, Store, TurnMetric } from "../services/store.js";
+import type { Channel, ChatMessage, CloseReason, Conversation, Store, TurnMetric } from "../services/store.js";
 import { human, toLocal, type Clock, systemClock } from "../services/time.js";
 import { buildSystemPrompt } from "./systemPrompt.js";
 import { makeExecutor, toolDefs, type ToolContext } from "./tools.js";
 import type { WaitlistService } from "./waitlist.js";
-import type { Patient } from "../services/store.js";
 import { withinOpeningHours } from "../services/calendar.js";
+import { closeConversation, reopenConversation } from "./conversationState.js";
+import { activeMenu, isMenuRequest, matchMenuOption, menuInteractive, type Interactive } from "./menu.js";
 
 export interface IncomingMessage {
   channel: Channel;
@@ -26,10 +27,23 @@ export interface IncomingMessage {
 export interface BotReply {
   /** Mensajes a enviar en orden (el aviso de privacidad va primero la primera vez). */
   messages: string[];
+  /** Botones o lista interactiva que acompañan al ÚLTIMO mensaje (menú inicial). */
+  interactive?: Interactive;
   conversationId: string;
   handedOff: boolean;
   metric?: TurnMetric;
   toolCalls: ToolCallLog[];
+}
+
+/** Herramientas que dejan un turno resuelto: la conversación se cierra sola. */
+function bookingOutcome(calls: ToolCallLog[]): CloseReason | null {
+  let r: CloseReason | null = null;
+  for (const c of calls) {
+    if (!(c.output as { ok?: boolean } | null)?.ok) continue;
+    if (c.name === "crear_cita" || c.name === "reprogramar_cita" || c.name === "confirmar_asistencia") r = "turno_confirmado";
+    if (c.name === "cancelar_cita") r = "turno_cancelado";
+  }
+  return r;
 }
 
 /**
@@ -64,10 +78,11 @@ export class BotEngine {
   }
 
   /**
-   * Respuestas a botones que no necesitan IA: confirmar asistencia y "más adelante".
-   * Son instantáneas y no tienen costo. Cancelar o cambiar pasan al modelo, que usa las herramientas.
+   * Respuestas a botones que no necesitan IA: confirmar asistencia, la oferta de la
+   * lista de espera y "más adelante". Son instantáneas y no tienen costo.
+   * Cancelar o cambiar pasan al modelo, que usa las herramientas.
    */
-  private async quickReply(pending: ChatMessage["meta"], text: string, ctx: ToolContext): Promise<string | null> {
+  private async quickReply(pending: ChatMessage["meta"], text: string, ctx: ToolContext): Promise<{ text: string; close?: CloseReason } | null> {
     const patientId = ctx.patient.id;
     const t = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N} ]/gu, "").trim();
     if (pending?.kind === "waitlist_offer" && pending.waitlistId && pending.slot) {
@@ -79,47 +94,65 @@ export class BotEngine {
       const a = await this.store.getAppointment(pending.appointmentId);
       if (!a || a.patientId !== patientId || !["confirmada", "pendiente"].includes(a.status)) return null;
       await this.store.updateAppointment(a.id, { confirmedByPatient: true, status: "confirmada" });
-      const name = a.patientName.replace(/\s*\(demo\)/i, "").split(/\s+/)[0];
-      return `¡Gracias, ${name}! ✅ Su asistencia quedó confirmada para el *${human(toLocal(a.start))}*. ¡Lo esperamos!`;
+      const name = a.patientName.split(/\s+/)[0];
+      return { text: `¡Gracias, ${name}! ✅ Su asistencia quedó confirmada para el *${human(toLocal(a.start))}*. ¡Lo esperamos!`, close: "turno_confirmado" };
     }
     if ((pending?.kind === "followup" || pending?.kind === "reactivation") && /^(mas adelante|despues|ahora no|no gracias|no)$/.test(t)) {
-      return "¡Perfecto! Cuando quiera, escríbame y le busco un turno. 😊";
+      return { text: "¡Perfecto! Cuando quiera, escríbame y le busco un turno. 😊" };
     }
     return null;
   }
 
   /** «Lo tomo» reserva el horario ofrecido (si sigue libre); «No, gracias» lo pasa a la siguiente persona. */
-  private async answerWaitlistOffer(entryId: string, slot: string, accept: boolean, ctx: ToolContext): Promise<string> {
+  private async answerWaitlistOffer(entryId: string, slot: string, accept: boolean, ctx: ToolContext): Promise<{ text: string; close?: CloseReason }> {
     const entry = (await this.store.listWaitlist()).find((e) => e.id === entryId);
-    if (!entry || entry.patientId !== ctx.patient.id) return "No encuentro esa oferta. ¿Quiere que le busque otro horario?";
+    if (!entry || entry.patientId !== ctx.patient.id) return { text: "No encuentro esa oferta. ¿Quiere que le busque otro horario?" };
     if (entry.status !== "ofrecido" || entry.offeredSlot !== slot) {
-      return entry.status === "aceptado"
-        ? "Ese turno ya quedó reservado a su nombre. 😊"
-        : "Disculpe, esa oferta ya venció y el horario se ofreció a otra persona. Sigue en la lista de espera: si se libera otro, le aviso. ¿Prefiere que le busque otro horario ahora?";
+      return {
+        text: entry.status === "aceptado"
+          ? "Ese turno ya quedó reservado a su nombre. 😊"
+          : "Disculpe, esa oferta ya venció y el horario se ofreció a otra persona. Sigue en la lista de espera: si se libera otro, le aviso. ¿Prefiere que le busque otro horario ahora?",
+      };
     }
     if (!accept) {
       await this.waitlist?.decline(entryId, slot);
-      return "Entendido. Sigue en la lista de espera: si se libera otro horario que le sirva, le aviso por aquí. 😊";
+      return { text: "Entendido. Sigue en la lista de espera: si se libera otro horario que le sirva, le aviso por aquí. 😊" };
     }
     const r = (await makeExecutor(ctx)("crear_cita", { nombre_completo: ctx.patient.name ?? entry.patientName, tratamiento: entry.treatment, inicio: slot })) as any;
     if (!r.ok) {
       await this.waitlist?.decline(entryId, slot);
-      return "¡Uy! Ese horario se ocupó hace un momento. Sigue en la lista de espera y le aviso apenas se libere otro. ¿Quiere que le busque otras opciones ahora?";
+      return { text: "¡Uy! Ese horario se ocupó hace un momento. Sigue en la lista de espera y le aviso apenas se libere otro. ¿Quiere que le busque otras opciones ahora?" };
     }
     await this.store.updateWaitlist(entryId, { status: "aceptado" });
-    const name = (ctx.patient.name ?? entry.patientName).replace(/\s*\(demo\)/i, "").split(/\s+/)[0];
-    return `¡Listo, ${name}! ✅ Le reservé el turno:\n\n📅 *${r.cita.cuando}*\n🦷 ${r.cita.tratamiento}\n📍 ${kb().address.replace(" (dirección ficticia)", "")}\n\nLe enviaré un recordatorio el día anterior.`;
+    const name = (ctx.patient.name ?? entry.patientName).split(/\s+/)[0];
+    return {
+      text: `¡Listo, ${name}! ✅ Le reservé el turno:\n\n📅 *${r.cita.cuando}*\n🦷 ${r.cita.tratamiento}\n📍 ${kb().address}\n\nLe enviaré un recordatorio el día anterior.`,
+      close: "turno_confirmado",
+    };
   }
 
   async handle(msg: IncomingMessage): Promise<BotReply> {
     return withClinic(this.clinic, () => this.handleInClinic(msg));
   }
 
+  /** Guarda las respuestas del bot y, si el turno quedó resuelto, cierra la conversación. */
+  private async finish(conv: Conversation, out: string[], close: CloseReason | null, options?: string[]) {
+    const at = this.clock().toISOString();
+    out.forEach((text, i) => conv.messages.push({ role: "bot", text, at, ...(options && i === out.length - 1 ? { options } : {}) }));
+    if (close && !conv.handedOff && !conv.botPaused) closeConversation(conv, close, at);
+    await this.store.saveConversation(conv);
+  }
+
   private async handleInClinic(msg: IncomingMessage): Promise<BotReply> {
     let patient = await this.store.getOrCreatePatient(msg.userId, msg.channel, msg.source ?? null);
+    // El nombre del perfil de WhatsApp se guarda aparte: no se confunde con el nombre real.
+    const profileName = msg.profileName?.trim().slice(0, 80) || null;
+    if (profileName && patient.profileName !== profileName) patient = await this.store.updatePatient(patient.id, { profileName });
     const conv = await this.store.getOrCreateConversation(patient, msg.channel);
     const at = this.clock().toISOString();
     conv.messages.push({ role: "patient", text: msg.text, at });
+    // El paciente volvió a escribir en una conversación cerrada: se reabre.
+    reopenConversation(conv, at);
 
     // Bot en pausa desde el panel: el mensaje queda registrado y no se responde nada.
     if (conv.botPaused) {
@@ -139,8 +172,7 @@ export class BotEngine {
       const reply = "Su mensaje fue recibido. Una persona del equipo le responderá a la brevedad. 🙌";
       const lastBot = [...conv.messages].reverse().find((m) => m.role === "bot");
       if (lastBot?.text !== reply) out.push(reply);
-      for (const t of out) conv.messages.push({ role: "bot", text: t, at });
-      await this.store.saveConversation(conv);
+      await this.finish(conv, out, null);
       return { messages: out, conversationId: conv.id, handedOff: true, toolCalls: [] };
     }
 
@@ -156,11 +188,31 @@ export class BotEngine {
     };
     const quick = await this.quickReply(pending, msg.text, ctx);
     if (quick) {
-      out.push(quick);
-      for (const t of out) conv.messages.push({ role: "bot", text: t, at });
-      await this.store.saveConversation(conv);
+      out.push(quick.text);
+      await this.finish(conv, out, quick.close ?? null);
       return { messages: out, conversationId: conv.id, handedOff: false, toolCalls: [] };
     }
+
+    // Menú inicial: un saludo solo (o «menú») recibe las opciones sin pasar por la IA.
+    const menu = activeMenu(kb());
+    const option = menu ? matchMenuOption(menu, msg.text, lastBot?.options) : null;
+    if (menu && !option && !pending && isMenuRequest(msg.text)) {
+      const first = (patient.name ?? profileName)?.split(/\s+/)[0];
+      const hello = firstTurn ? `¡Hola${first ? `, ${first}` : ""}! 👋 Soy el asistente virtual de *${kb().name}*.` : "";
+      const privacy = firstTurn && config.privacyMode === "inline" ? privacyLine : "";
+      out.push([hello, menu.intro, privacy].filter(Boolean).join("\n\n"));
+      const interactive = menuInteractive(menu);
+      await this.finish(conv, out, null, menu.options.map((o) => o.label));
+      return { messages: out, interactive, conversationId: conv.id, handedOff: false, toolCalls: [] };
+    }
+    if (option?.kind === "respuesta") {
+      out.push(option.text);
+      await this.finish(conv, out, null);
+      return { messages: out, conversationId: conv.id, handedOff: false, toolCalls: [] };
+    }
+    // Opción «consulta»: el bot la recibe como si el paciente la hubiera escrito.
+    const userText = option ? option.text : msg.text;
+
     let reminderNote = "";
     if (pending?.appointmentId) {
       const a = await this.store.getAppointment(pending.appointmentId);
@@ -188,9 +240,10 @@ export class BotEngine {
       `Consultorio ${open ? "ABIERTO" : "CERRADO"} en este momento.`,
       `Canal: ${msg.channel}. Teléfono del paciente: ${patient.phone}.`,
       `Nombre registrado: ${ctx.patient.name ?? "desconocido"}.`,
-      msg.profileName ? `Nombre de perfil de WhatsApp (no confirmado): ${msg.profileName}.` : "",
+      profileName ? `Nombre de perfil de WhatsApp (no confirmado): ${profileName}.` : "",
+      option ? `El paciente eligió la opción «${option.label}» del menú.` : "",
       firstTurn
-        ? `PRIMER MENSAJE de la conversación: salude${msg.profileName ? " por el nombre de pila del perfil" : ""}, preséntese en una oración y responda lo que pidió.` +
+        ? `PRIMER MENSAJE de la conversación: salude${profileName ? " por el nombre de pila del perfil" : ""}, preséntese en una oración y responda lo que pidió.` +
           (config.privacyMode === "inline" ? ` Cierre con esta línea exacta: «${privacyLine}»` : "")
         : "",
       patient.source ? `Llegó por: ${patient.source}.` : "",
@@ -205,7 +258,7 @@ export class BotEngine {
       const r = await this.provider.runTurn({
         system: this.system,
         state: conv.llmState,
-        userText: msg.text,
+        userText,
         turnContext,
         tools: toolDefs,
         executeTool: execute,
@@ -233,9 +286,7 @@ export class BotEngine {
     }
 
     out.push(text);
-    for (const t of out) conv.messages.push({ role: "bot", text: t, at: this.clock().toISOString() });
-    await this.store.saveConversation(conv);
-    patient = ctx.patient;
+    await this.finish(conv, out, bookingOutcome(toolCalls));
     return { messages: out, conversationId: conv.id, handedOff: conv.handedOff, metric, toolCalls };
   }
 }

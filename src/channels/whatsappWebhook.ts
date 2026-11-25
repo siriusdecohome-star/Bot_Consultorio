@@ -141,8 +141,12 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
     const reply = await bot.handle({
       channel: "whatsapp", userId: `+${m.from}`, text: m.text, source: m.source, profileName: m.name,
     });
-    for (const text of reply.messages) {
-      await sender.sendText(m.from, text);
+    for (const [i, text] of reply.messages.entries()) {
+      const ui = i === reply.messages.length - 1 ? reply.interactive : undefined;
+      if (ui?.buttons?.length) await sender.sendButtons(m.from, text, ui.buttons.map((t, j) => ({ id: `menu${j}`, title: t })));
+      else if (ui?.list && sender.sendList) await sender.sendList(m.from, text, ui.list.button, ui.list.rows);
+      else if (ui?.list) await sender.sendText(m.from, `${text}\n\n${ui.list.rows.map((r, j) => `${j + 1}. ${r.title}`).join("\n")}`);
+      else await sender.sendText(m.from, text);
     }
     const ms = reply.metric ? `${reply.metric.latencyMs} ms` : "";
     log(`→ ${mask(m.from)}: ${reply.messages.length} mensaje(s) ${ms}`);

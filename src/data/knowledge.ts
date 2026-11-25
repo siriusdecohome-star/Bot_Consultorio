@@ -40,6 +40,5 @@ export const privacyLine =
 export function privacyNotice(): string {
   return `🔒 Aviso de privacidad: soy el asistente virtual de ${kb().name}. ` +
     "Uso sus datos (nombre y teléfono) solo para gestionar sus turnos y la conversación queda registrada de forma confidencial. " +
-    "No comparta información médica sensible por este medio. Si en algún momento prefiere hablar con una persona, escriba «persona». " +
-    "(Demo con datos ficticios.)";
+    "No comparta información médica sensible por este medio. Si en algún momento prefiere hablar con una persona, escriba «persona».";
 }

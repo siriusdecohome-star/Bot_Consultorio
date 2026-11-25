@@ -172,7 +172,11 @@ async function deliver(text, out) {
         await sleep(Math.min(1200, 300 + m.length * 6));
         setTyping(false);
       }
-      bubble(m, "in", { notice: isNotice });
+      // Menú inicial: botones (hasta 3) o lista de WhatsApp, en el último mensaje.
+      const ui = i === data.messages.length - 1 ? data.interactive : null;
+      const opts = ui ? (ui.buttons ?? ui.list?.rows.map((r) => r.title) ?? []) : [];
+      if (opts.length) bubbleWithButtons(m, opts);
+      else bubble(m, "in", { notice: isNotice });
     }
     showMetrics(data);
     // Resaltar en la agenda lo que cambió en este mensaje (reserva, cancelación o cambio).

@@ -96,6 +96,12 @@ export class MockProvider implements LlmProvider {
     };
     const t = norm(input.userText);
     const now = nowFromContext(input.turnContext);
+    // El nombre real se guarda con su herramienta apenas el paciente lo dice.
+    const saveName = async (text: string) => {
+      const name = text.replace(/^(hola[,!. ]*)?(soy|me llamo|mi nombre es)\s+/i, "").replace(/[.!]+$/, "").trim();
+      const r = await call("guardar_nombre_paciente", { nombre_completo: name });
+      return r?.ok ? String(r.nombre) : name;
+    };
     const knownName = input.turnContext.match(/Nombre registrado: (.+)\./)?.[1];
     if (knownName && knownName !== "desconocido") mem.name ??= knownName;
 
@@ -144,6 +150,11 @@ export class MockProvider implements LlmProvider {
         await call("derivar_a_humano", { motivo: "urgencia", resumen: `Posible urgencia: "${input.userText}"` });
         return "Lamento lo que le pasa. Por lo que describe, le recomiendo acudir de inmediato a una guardia odontológica u hospital. Ya avisé al equipo para que le contacte.";
       }
+      if (has(t, "cambiar o cancelar")) {
+        const r = await call("ver_citas_paciente", {});
+        if (!r.citas.length) return "No encuentro turnos activos a su nombre. ¿Quiere que le busque uno?";
+        return `Tiene un turno el *${r.citas[0].cuando}* (${r.citas[0].tratamiento}). ¿Lo quiere *cambiar* de horario o *cancelar*?`;
+      }
       if (has(t, "cancel", "no voy a poder", "no puedo ir")) {
         const r = await call("ver_citas_paciente", {});
         if (!r.citas.length) return "No encuentro turnos activos a su nombre. ¿Quiere que le busque uno?";
@@ -178,7 +189,7 @@ export class MockProvider implements LlmProvider {
         return `¡Listo! 📝 Lo anoté en la lista de espera del *${d(x.desde)}* al *${d(x.hasta)}*${x.franja === "cualquiera" ? "" : ` (por la ${x.franja === "manana" ? "mañana" : "tarde"})`}. Si se libera un turno, se lo ofrezco por aquí al instante.`;
       };
       if (mem.step === "pide_nombre_espera") {
-        mem.name = input.userText.replace(/^(soy|me llamo|mi nombre es)\s+/i, "").trim();
+        mem.name = await saveName(input.userText);
         return waitlist(mem.name);
       }
       if (has(t, "lista de espera", "anot", "avis", "si se libera", "esperar")) {
@@ -216,7 +227,7 @@ export class MockProvider implements LlmProvider {
         return this.book(call, mem);
       }
       if (mem.step === "pide_nombre") {
-        mem.name = input.userText.replace(/^(soy|me llamo|mi nombre es)\s+/i, "").trim();
+        mem.name = await saveName(input.userText);
         return this.book(call, mem);
       }
 
@@ -250,11 +261,18 @@ export class MockProvider implements LlmProvider {
       if (has(t, "precio", "cuanto", "cuesta", "sale", "valor", "promo")) {
         const tr = treatmentOf(t);
         if (tr) mem.treatment = tr;
-        if (has(t, "promo") || !tr) {
+        if (has(t, "promo")) {
           return `¡Qué bueno que le interese! 🦷 *${kb().promo.name}*: ${kb().promo.detail}\n\n¿Le busco un turno? Dígame qué día le queda mejor.`;
+        }
+        if (!tr) {
+          const list = kb().treatments.slice(0, 6).map((x) => `• ${x.name}: *${x.price}*`).join("\n");
+          return `Estos son nuestros valores:\n\n${list}\n\n🎁 Además está la *${kb().promo.name}*. ¿Le busco un turno?`;
         }
         const x = kb().treatments.find((k) => norm(k.name).includes(norm(tr).split(" ")[0]!));
         return x ? `*${x.name}*: ${x.price} (${x.duration}). ${x.notes}\n\n¿Quiere que le busque un turno?` : `${kb().promo.detail}\n\n¿Quiere que le busque un turno?`;
+      }
+      if (has(t, "horario", "atienden", "abren", "abierto") && has(t, "donde", "direccion", "quedan")) {
+        return `🕘 Atendemos ${kb().hoursText.charAt(0).toLowerCase()}${kb().hoursText.slice(1)}\n📍 Estamos en ${kb().address}. ${kb().reference}\n\n¿Le busco un turno?`;
       }
       if (has(t, "horario", "atienden", "abren", "abierto")) return `Atendemos ${kb().hoursText.charAt(0).toLowerCase()}${kb().hoursText.slice(1)}\n\n¿Le busco un turno?`;
       if (has(t, "donde", "direccion", "ubicacion", "quedan")) return `📍 Estamos en ${kb().address}. ${kb().reference}\n\n¿Le busco un turno?`;

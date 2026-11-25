@@ -65,7 +65,7 @@ try {
   await check("Bandeja: lista la conversación con estado «bot»", async () => {
     const r = await call("GET", "/conversations", recep);
     assert.equal(r.status, 200);
-    assert.equal(r.json.conversations[0].status, "bot");
+    assert.equal(r.json.conversations[0].state, "bot");
   });
 
   await check("Tomar conversación: el bot deja de contestar y queda una derivación abierta", async () => {
@@ -91,7 +91,9 @@ try {
     const c = await A.store.getConversation(convId);
     assert.equal(c!.messages.at(-1)!.text, "Hola?");
     const d = await call("GET", `/conversation/${convId}`, recep);
-    assert.equal(d.json.status, "pausada");
+    // Pausada y con un mensaje del paciente sin responder: espera a recepción.
+    assert.equal(d.json.state, "esperando");
+    assert.equal(d.json.botPaused, true);
     await call("POST", `/conversation/${convId}/pause`, recep, { paused: false });
     assert.ok((await say("web:paciente-1", "Quiero sacar un turno")).messages.length > 0);
   });
