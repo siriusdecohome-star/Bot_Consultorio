@@ -129,7 +129,10 @@ const cases: Array<{ name: string; expected: string; at: string; run: Check }> =
     expected: "Responde igual y solo ofrece horarios dentro del horario de atención",
     at: "2026-11-23T22:30", // lunes de noche, consultorio cerrado
     async run({ say, store, local }) {
-      const r1 = await say("p5", "Hola, necesito un turno lo antes posible");
+      let r1 = await say("p5", "Hola, necesito un turno lo antes posible");
+      // Orden de la etapa multidoctores: puede preguntar antes la especialidad y el profesional.
+      if (/especialidad/i.test(r1.messages.at(-1)!)) r1 = await say("p5", "Odontología general");
+      if (/con qui[eé]n/i.test(r1.messages.at(-1)!)) r1 = await say("p5", "El primero disponible");
       if (!offeredTimes(r1.messages.at(-1)!).length) return "no ofreció horarios";
       const r2 = await say("p5", "¿Puede ser el domingo a las 10?");
       const appts = await store.listAppointments();

@@ -13,7 +13,8 @@ export const altamira: ClinicKnowledge = {
   email: "agenda@altamira.demo",
   professionals: [
     "Dr. Andrés Quiroga — odontología general y endodoncia",
-    "Dra. Paula Vargas — odontopediatría (atiende lunes, miércoles y viernes)",
+    "Dra. Paula Vargas — odontopediatría (lunes, miércoles y viernes)",
+    "Dr. Luis Choque — odontología general (martes y jueves por la tarde, viernes por la mañana)",
   ],
   hours: [
     { weekday: 1, blocks: [["08:30", "12:30"], ["15:00", "19:00"]] },
@@ -24,12 +25,12 @@ export const altamira: ClinicKnowledge = {
   ],
   hoursText: "Lunes a viernes de 8:30 a 12:30 y de 15:00 a 19:00. Sábados, domingos y feriados, cerrado.",
   treatments: [
-    { name: "Consulta general", price: "Bs 150", duration: "30 min", notes: "Incluye revisión y plan de tratamiento." },
-    { name: "Limpieza dental (profilaxis)", price: "Bs 250", duration: "30 min", notes: "Con aplicación de flúor." },
-    { name: "Consulta de odontopediatría", price: "Bs 180", duration: "30 min", notes: "Para niños de 2 a 14 años, con la Dra. Vargas." },
-    { name: "Tratamiento de conducto (endodoncia)", price: "desde Bs 900", duration: "60 min (dos turnos seguidos)", notes: "Requiere consulta previa y radiografía." },
-    { name: "Arreglo de caries (resina)", price: "desde Bs 300 por pieza", duration: "30 min", notes: "El valor final depende de la pieza." },
-    { name: "Sellantes para niños", price: "Bs 120 por pieza", duration: "30 min", notes: "Previenen caries en muelas definitivas." },
+    { id: "consulta-general", specialty: "Odontología general", name: "Consulta general", price: "Bs 150", duration: "30 min", notes: "Incluye revisión y plan de tratamiento." },
+    { id: "limpieza", specialty: "Odontología general", name: "Limpieza dental (profilaxis)", price: "Bs 250", duration: "30 min", notes: "Con aplicación de flúor." },
+    { id: "odontopediatria", specialty: "Odontopediatría", name: "Consulta de odontopediatría", price: "Bs 180", duration: "30 min", notes: "Para niños de 2 a 14 años, con la Dra. Vargas." },
+    { id: "endodoncia", specialty: "Endodoncia", name: "Tratamiento de conducto (endodoncia)", price: "desde Bs 900", duration: "60 min", notes: "Requiere consulta previa y radiografía." },
+    { id: "caries", specialty: "Odontología general", name: "Arreglo de caries (resina)", price: "desde Bs 300 por pieza", duration: "30 min", notes: "El valor final depende de la pieza." },
+    { id: "sellantes", specialty: "Odontopediatría", name: "Sellantes para niños", price: "Bs 120 por pieza", duration: "30 min", notes: "Previenen caries en muelas definitivas." },
   ],
   promo: {
     name: "Chequeo Familiar",

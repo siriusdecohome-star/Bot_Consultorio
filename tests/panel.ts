@@ -152,8 +152,8 @@ try {
 
   await check("Estadísticas: un turno reprogramado no se cuenta dos veces", async () => {
     const s = buildStats({ tz: "America/La_Paz", now: clock(), days: 7, patients: [], conversations: [], handoffs: [], appointments: [
-      { id: "1", patientId: "p", patientName: "X", treatment: "Limpieza", start: "2026-11-24T14:00:00Z", end: "2026-11-24T14:30:00Z", status: "reprogramada", calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false, createdAt: "2026-11-20T14:00:00Z" },
-      { id: "2", patientId: "p", patientName: "X", treatment: "Limpieza", start: "2026-11-25T14:00:00Z", end: "2026-11-25T14:30:00Z", status: "confirmada", calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false, createdAt: "2026-11-21T14:00:00Z" },
+      { id: "1", patientId: "p", patientName: "X", treatment: "Limpieza", professionalId: null, start: "2026-11-24T14:00:00Z", end: "2026-11-24T14:30:00Z", status: "reprogramada", calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false, createdAt: "2026-11-20T14:00:00Z" },
+      { id: "2", patientId: "p", patientName: "X", treatment: "Limpieza", professionalId: null, start: "2026-11-25T14:00:00Z", end: "2026-11-25T14:30:00Z", status: "confirmada", calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false, createdAt: "2026-11-21T14:00:00Z" },
     ] });
     assert.equal(s.totals.turnosAgendados, 1);
     assert.deepEqual(s.tratamientos, [{ name: "Limpieza", count: 1 }]);

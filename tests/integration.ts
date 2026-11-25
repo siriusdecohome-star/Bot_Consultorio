@@ -90,7 +90,7 @@ try {
 
   // 6. Índice de doble reserva por clínica: la misma hora en la clínica B se acepta
   const pB = await storeB.getOrCreatePatient(phoneA, "test", "prueba-integracion");
-  const sameHour = { patientName: "Prueba B (demo)", treatment: "Consulta", start: appt!.start, end: appt!.end, status: "confirmada" as const,
+  const sameHour = { patientName: "Prueba B", treatment: "Consulta", professionalId: appt!.professionalId ?? "prof-mendez", start: appt!.start, end: appt!.end, status: "confirmada" as const,
     calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false };
   const tA = await store.createAppointment({ ...sameHour, patientId: (await store.getOrCreatePatient(phoneA, "test")).id });
   const tB = await storeB.createAppointment({ ...sameHour, patientId: pB.id });

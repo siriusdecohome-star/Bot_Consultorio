@@ -15,13 +15,19 @@ export function kb(): ClinicKnowledge {
 /** Texto de la base de conocimiento para el prompt de sistema. */
 export function knowledgeText(k: ClinicKnowledge = kb()): string {
   const t = k.treatments
-    .map((x) => `- ${x.name}: ${x.price}. Duración: ${x.duration}. ${x.notes}`)
+    .map((x) => `- ${x.name}${x.specialty ? ` [${x.specialty}]` : ""}: ${x.price}. Duración: ${x.duration}. ${x.notes}`)
     .join("\n");
+  // Profesionales con su especialidad y días (los horarios exactos los da buscar_horarios_disponibles).
+  const DAYS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"];
+  const profs = (currentClinic().professionals ?? []).filter((p) => p.active);
+  const team = profs.length
+    ? profs.map((p) => `- ${p.name} (id ${p.id}) — ${p.specialty}. Atiende: ${p.hours.map((h) => DAYS[h.weekday - 1]).join(", ")}. Tratamientos: ${p.treatments.map((x) => k.treatments.find((tr) => tr.id === x.id)?.name ?? x.id).join(", ")}.`).join("\n")
+    : `- ${k.professionals.join("\n- ")}`;
   return [
     `Nombre: ${k.name} (${k.tagline})`,
     `Dirección: ${k.address}. ${k.reference}`,
     `Teléfono: ${k.phone}. Correo: ${k.email}`,
-    `Profesionales:\n- ${k.professionals.join("\n- ")}`,
+    `Profesionales:\n${team}`,
     `Horario de atención: ${k.hoursText}`,
     `Tratamientos y precios:\n${t}`,
     `Promoción vigente: ${k.promo.name}. ${k.promo.detail}`,

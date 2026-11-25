@@ -100,6 +100,7 @@ const loaders = {
   bandeja: () => loadInbox(),
   resumen: () => loadSummary(),
   agenda: () => loadAgenda(),
+  profesionales: () => loadProfessionals(),
   pacientes: () => loadPatients(),
   estadisticas: () => loadStats(),
   costos: () => loadCosts(),
@@ -312,7 +313,7 @@ function renderProfile(root, p, appointments = [], { conversationId = null, conv
   const now = new Date().toISOString();
   const next = appointments.filter((a) => a.start >= now && ["confirmada", "pendiente"].includes(a.status));
   const past = appointments.filter((a) => !(a.start >= now && ["confirmada", "pendiente"].includes(a.status))).reverse();
-  const apptRow = (a) => `<li><span class="when">${esc(fDateTime(a.start))}</span><span class="tr">${esc(a.treatment)}</span>${apptPill(a.status)}${a.confirmed && a.status === "confirmada" ? '<span class="pill ok">✓ confirmó</span>' : ""}</li>`;
+  const apptRow = (a) => `<li><span class="when">${esc(fDateTime(a.start))}</span><span class="tr">${esc(a.treatment)}${a.professional ? ` · ${esc(a.professional)}` : ""}</span>${apptPill(a.status)}${a.confirmed && a.status === "confirmada" ? '<span class="pill ok">✓ confirmó</span>' : ""}</li>`;
   root.innerHTML = `
     <form class="profile" data-patient="${esc(p.id)}">
       <div class="profile-head">
@@ -535,6 +536,11 @@ async function loadAgenda() {
   const cur = sel.value;
   sel.innerHTML = `<option value="">Todos</option>` + [...new Set([...d.treatments, ...d.appointments.map((a) => a.treatment)])].map((t) => `<option>${esc(t)}</option>`).join("");
   sel.value = cur;
+  const ps = $("#ag-prof");
+  const curP = ps.value;
+  ps.innerHTML = `<option value="">Todos</option>` + d.professionals.filter((p) => p.active).map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+  ps.value = d.professionals.some((p) => p.id === curP) ? curP : "";
+  $("#ag-legend").innerHTML = d.professionals.filter((p) => p.active).map((p) => `<span><i style="background:${esc(p.color)}"></i>${esc(p.name)}</span>`).join("");
   renderAgenda();
   stamp();
   loadWaitlist().catch(() => {});
@@ -544,13 +550,35 @@ function agendaFiltered() {
   const d = state.agenda;
   const tr = $("#ag-treatment").value;
   const st = $("#ag-status").value;
+  const pr = $("#ag-prof").value;
   const showCancelled = $("#ag-cancelled").checked || st === "cancelada";
   return d.appointments.filter((a) =>
     (showCancelled || a.status !== "cancelada") &&
     (!tr || a.treatment === tr) &&
+    (!pr || a.professionalId === pr) &&
     (!st || (st === "sin-confirmar" ? ["confirmada", "pendiente"].includes(a.status) && !a.confirmed : a.status === st)));
 }
 
+/** Bloques de atención (minutos) de un día: los del profesional cruzados con los de la clínica. */
+function openBlocksFor(d, weekday, prof) {
+  const clinic = (d.hours.find((h) => h.weekday === weekday)?.blocks ?? []).map(([a, b]) => [toMin(a), toMin(b)]);
+  if (!prof) return clinic;
+  const own = (prof.hours.find((h) => h.weekday === weekday)?.blocks ?? []).map(([a, b]) => [toMin(a), toMin(b)]);
+  const out = [];
+  for (const [a1, b1] of own) for (const [a2, b2] of clinic) { const a = Math.max(a1, a2), b = Math.min(b1, b2); if (a < b) out.push([a, b]); }
+  return out;
+}
+/** Franja bloqueada por una excepción del profesional ese día (minutos), o null. */
+function exceptionFor(d, profId, iso) {
+  const e = d.exceptions.find((x) => x.professionalId === profId && x.fromDate <= iso && x.toDate >= iso);
+  if (!e) return null;
+  return { e, from: e.kind === "franja" ? toMin(e.fromTime) : 0, to: e.kind === "franja" ? toMin(e.toTime) : 24 * 60 };
+}
+
+/**
+ * Vista semanal: una columna por día (con filtro por profesional y el color de cada uno).
+ * Vista del día: una columna por profesional, con su horario y sus excepciones.
+ */
 function renderAgenda() {
   const d = state.agenda;
   if (!d) return;
@@ -558,6 +586,13 @@ function renderAgenda() {
   $("#wk-label").textContent = d.days === 1 ? dateOnly(days[0]) : `${dateOnly(days[0])} – ${dateOnly(days[days.length - 1])}`;
   const list = agendaFiltered();
   $("#ag-count").textContent = `${list.length} turno(s)`;
+  const profById = new Map(d.professionals.map((p) => [p.id, p]));
+  const pr = $("#ag-prof").value;
+  const weekdayOf = (iso) => ((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
+
+  const cols = d.days === 1
+    ? d.professionals.filter((p) => p.active && (!pr || p.id === pr)).map((p) => ({ iso: days[0], prof: p, key: p.id }))
+    : days.map((iso) => ({ iso, prof: pr ? profById.get(pr) : null, key: iso }));
 
   // Rango de horas: de la apertura más temprana al cierre más tardío (y los turnos que queden afuera).
   const blocks = d.hours.flatMap((h) => h.blocks);
@@ -567,14 +602,18 @@ function renderAgenda() {
   end = Math.ceil(end / 60) * 60;
   const step = 30;
   const rows = (end - start) / step;
-  const y = (min) => ((min - start) / step) * ROW_PX;
+  const y = (min) => ((Math.min(Math.max(min, start), end) - start) / step) * ROW_PX;
+  const nowMin = toMin(fTime(new Date().toISOString()));
 
-  const weekdayOf = (iso) => ((new Date(`${iso}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
-  const nowMin = (() => { const t = fTime(new Date().toISOString()); return toMin(t); })();
-
-  const head = `<div class="cal-corner"></div>` + days.map((iso) => {
-    const n = list.filter((a) => a.date === iso && a.status !== "cancelada").length;
-    return `<div class="cal-dayhead${iso === d.today ? " today" : ""}"><b>${esc(DAYS[weekdayOf(iso) - 1])}</b> <span>${esc(dateOnly(iso).split(" ")[1])}</span><small>${n ? `${n} turno${n > 1 ? "s" : ""}` : ""}</small></div>`;
+  const head = `<div class="cal-corner"></div>` + cols.map((c) => {
+    const n = list.filter((a) => a.date === c.iso && (!c.prof || a.professionalId === c.prof.id) && a.status !== "cancelada").length;
+    const count = `<small>${n ? `${n} turno${n > 1 ? "s" : ""}` : ""}</small>`;
+    const exH = c.prof ? exceptionFor(d, c.prof.id, c.iso) : null;
+    const exPill = exH ? `<em class="exc-pill" title="Excepción de agenda">⛔ ${esc(exH.e.reason)}${exH.e.kind === "franja" ? ` ${esc(exH.e.fromTime)}–${esc(exH.e.toTime)}` : ""}</em>` : "";
+    if (d.days === 1) {
+      return `<div class="cal-dayhead prof"><i class="dot-c" style="background:${esc(c.prof.color)}"></i><b>${esc(c.prof.name)}</b>${count}<span>${esc(c.prof.specialty)}</span>${exPill}</div>`;
+    }
+    return `<div class="cal-dayhead${c.iso === d.today ? " today" : ""}"><b>${esc(DAYS[weekdayOf(c.iso) - 1])}</b> <span>${esc(dateOnly(c.iso).split(" ")[1])}</span>${count}</div>`;
   }).join("");
 
   const times = Array.from({ length: rows }, (_, i) => {
@@ -582,12 +621,14 @@ function renderAgenda() {
     return `<div class="cal-time" style="top:${i * ROW_PX}px">${m % 60 === 0 ? `${String(m / 60).padStart(2, "0")}:00` : ""}</div>`;
   }).join("");
 
-  const cols = days.map((iso) => {
-    const wd = weekdayOf(iso);
-    const open = d.hours.find((h) => h.weekday === wd)?.blocks ?? [];
-    const openHtml = open.map(([a, b]) => `<div class="cal-open" style="top:${y(toMin(a))}px;height:${y(toMin(b)) - y(toMin(a))}px"></div>`).join("");
+  const body = cols.map((c) => {
+    const open = openBlocksFor(d, weekdayOf(c.iso), c.prof);
+    const openHtml = open.map(([a, b]) => `<div class="cal-open" style="top:${y(a)}px;height:${y(b) - y(a)}px"></div>`).join("");
+    const ex = c.prof ? exceptionFor(d, c.prof.id, c.iso) : null;
+    const exHtml = ex ? `<div class="cal-exc" style="top:${y(ex.from)}px;height:${Math.max(y(ex.to) - y(ex.from), 24)}px" title="${esc(ex.e.reason)}"></div>` : "";
     // Turnos que se superponen (p. ej. uno cancelado y otro nuevo a la misma hora) se reparten el ancho.
-    const items = list.filter((a) => a.date === iso).map((a) => ({ a, s: toMin(a.time), e: Math.max(toMin(a.endTime), toMin(a.time) + 15) })).sort((x, z) => x.s - z.s);
+    const items = list.filter((a) => a.date === c.iso && (!c.prof || a.professionalId === c.prof.id))
+      .map((a) => ({ a, s: toMin(a.time), e: Math.max(toMin(a.endTime), toMin(a.time) + 15) })).sort((x, z) => x.s - z.s);
     const lanes = [];
     for (const it of items) {
       let lane = lanes.findIndex((endAt) => endAt <= it.s);
@@ -597,26 +638,30 @@ function renderAgenda() {
     for (const it of items) it.n = Math.max(1, ...items.filter((o) => o.s < it.e && o.e > it.s).map((o) => o.lane + 1));
     const appts = items.map(({ a, s, e, lane, n }) => {
       const active = a.status === "confirmada" || a.status === "pendiente";
-      return `<button type="button" class="cal-appt st-${esc(a.status)}${active && !a.confirmed ? " unconfirmed" : ""}" data-appt="${esc(a.id)}"
-        style="top:${y(s) + 1}px;height:${Math.max(y(e) - y(s) - 2, 20)}px;left:calc(${(lane / n) * 100}% + 2px);width:calc(${100 / n}% - 4px)"
-        title="${esc(`${a.time}–${a.endTime} · ${a.patient} · ${a.treatment} · ${STATUS[a.status]?.[0] ?? a.status}`)}">
-        <b>${esc(a.time)}</b> ${esc(a.patient)}<span>${esc(a.treatment)}</span></button>`;
+      const color = profById.get(a.professionalId)?.color ?? "#25d366";
+      const hit = active && ex && s < ex.to && e > ex.from;
+      return `<button type="button" class="cal-appt st-${esc(a.status)}${active && !a.confirmed ? " unconfirmed" : ""}${hit ? " affected" : ""}" data-appt="${esc(a.id)}"
+        style="--pc:${esc(color)};top:${y(s) + 1}px;height:${Math.max(y(e) - y(s) - 2, 20)}px;left:calc(${(lane / n) * 100}% + 2px);width:calc(${100 / n}% - 4px)"
+        title="${esc(`${a.time}–${a.endTime} · ${a.patient} · ${a.treatment}${a.professional ? ` · ${a.professional}` : ""} · ${STATUS[a.status]?.[0] ?? a.status}`)}">
+        <b>${esc(a.time)}</b> ${esc(a.patient)}<span>${esc(a.treatment)}${d.days === 7 && !c.prof && a.professional ? ` · ${esc(a.professional)}` : ""}</span></button>`;
     }).join("");
-    const nowLine = iso === d.today && nowMin >= start && nowMin <= end ? `<div class="cal-now" style="top:${y(nowMin)}px"></div>` : "";
-    return `<div class="cal-col${open.length ? "" : " closed"}${iso === d.today ? " today" : ""}" style="height:${rows * ROW_PX}px">${openHtml}${appts}${nowLine}${open.length ? "" : '<span class="cal-closed">Cerrado</span>'}</div>`;
+    const nowLine = c.iso === d.today && nowMin >= start && nowMin <= end ? `<div class="cal-now" style="top:${y(nowMin)}px"></div>` : "";
+    const closed = !open.length ? `<span class="cal-closed">${c.prof ? "No atiende" : "Cerrado"}</span>` : "";
+    return `<div class="cal-col${open.length ? "" : " closed"}${c.iso === d.today && d.days === 7 ? " today" : ""}" style="height:${rows * ROW_PX}px">${openHtml}${exHtml}${appts}${nowLine}${closed}</div>`;
   }).join("");
 
-  $("#cal").innerHTML = `<div class="cal-grid" style="--days:${d.days}">
+  $("#cal").innerHTML = cols.length ? `<div class="cal-grid" style="--days:${cols.length}">
       <div class="cal-head">${head}</div>
-      <div class="cal-body"><div class="cal-times" style="height:${rows * ROW_PX}px">${times}</div>${cols}</div>
-    </div>`;
+      <div class="cal-body"><div class="cal-times" style="height:${rows * ROW_PX}px">${times}</div>${body}</div>
+    </div>` : '<p class="empty pad">No hay profesionales para mostrar.</p>';
   // La vista arranca cerca de la hora actual (o del primer turno), sin perder la cabecera.
   const scroller = $("#cal .cal-grid");
+  if (!scroller) return;
   const first = list.filter((a) => a.status !== "cancelada").map((a) => toMin(a.time)).sort((a, b) => a - b)[0];
   const target = days.includes(d.today) ? nowMin - 60 : (first ?? start) - 30;
   scroller.scrollTop = Math.max(0, y(target));
 }
-["#ag-treatment", "#ag-status", "#ag-cancelled"].forEach((s) => $(s).addEventListener("change", renderAgenda));
+["#ag-treatment", "#ag-status", "#ag-cancelled", "#ag-prof"].forEach((s) => $(s).addEventListener("change", renderAgenda));
 segment("#ag-mode", (n) => {
   state.agDays = Number(n);
   state.weekFrom = state.agDays === 1 ? (state.agenda?.days === 7 && state.agenda.from <= state.agenda.today && addDays(state.agenda.from, 6) >= state.agenda.today ? state.agenda.today : state.weekFrom) : null;
@@ -642,6 +687,7 @@ function openAppointment(a) {
       <p class="big-when">${esc(fDateTime(a.start))} – ${esc(fTime(a.end))}</p>
       <dl>
         <dt>Tratamiento</dt><dd>${esc(a.treatment)}</dd>
+        ${a.professional ? `<dt>Profesional</dt><dd>${esc(a.professional)}</dd>` : ""}
         <dt>Estado</dt><dd>${apptPill(a.status)} ${active ? (a.confirmed ? '<span class="pill ok">✓ confirmó el paciente</span>' : '<span class="pill wait">sin confirmar por el paciente</span>') : ""}</dd>
         <dt>Contacto</dt><dd>${esc(a.phone || "—")} · ${esc(CH[a.channel] ?? a.channel)}</dd>
         ${a.reminder24 !== undefined ? `<dt>Recordatorios</dt><dd>24 h ${a.reminder24 ? "✓" : "·"} · 2 h ${a.reminder2 ? "✓" : "·"}</dd>` : ""}
@@ -687,6 +733,174 @@ $("#waitlist").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-wl-cancel]");
   if (!b || !confirm("¿Quitar a esta persona de la lista de espera?")) return;
   try { await post(`/waitlist/${encodeURIComponent(b.dataset.wlCancel)}/cancel`); loadWaitlist(); } catch (err) { toast(err.message, true); }
+});
+
+// =====================================================================
+// Profesionales: horario, tratamientos con duración, calendario y excepciones
+// =====================================================================
+const KIND = { dia: "Día completo", franja: "Franja", rango: "Vacaciones" };
+/** «Lun a Vie 09:00–13:00, 14:00–18:00 · Sáb 09:00–13:00»: agrupa los días seguidos con el mismo horario. */
+const hoursText = (hours) => {
+  const label = (i) => DAYS[i].slice(0, 3);
+  const key = (i) => { const h = hours.find((x) => x.weekday === i + 1); return h ? h.blocks.map(([a, b]) => `${a}–${b}`).join(", ") : ""; };
+  const out = [];
+  for (let i = 0; i < 7; i++) {
+    const k = key(i);
+    if (!k) continue;
+    let j = i;
+    while (j + 1 < 7 && key(j + 1) === k) j++;
+    const days = j > i + 1 ? `${label(i)} a ${label(j)}` : j === i + 1 ? `${label(i)} y ${label(j)}` : label(i);
+    out.push(`${days} ${k}`);
+    i = j;
+  }
+  return out.join(" · ") || "Sin horario cargado";
+};
+
+async function loadProfessionals() {
+  const d = await api("/professionals");
+  state.pros = d;
+  $("#pr-mode").textContent = d.canEdit ? "Puede editar (admin)" : "Solo lectura: los edita el admin. Recepción sí carga excepciones.";
+  $("#pr-add").hidden = !d.canEdit;
+  const tName = (id) => d.treatments.find((t) => t.id === id)?.name ?? id;
+  $("#pros").innerHTML = d.professionals.map((p) => `
+    <article class="card pro${p.active ? "" : " inactive"}">
+      <div class="pro-head"><i class="dot-c big" style="background:${esc(p.color)}"></i>
+        <div><h3>${esc(p.name)}</h3><p class="hint">${esc(p.specialty)}</p></div>
+        <span class="pill ${p.calendar === "google" ? "info" : "muted"}">${p.calendar === "google" ? "Google Calendar" : "Agenda interna"}</span>
+      </div>
+      <p class="pro-hours">${esc(hoursText(p.hours))}</p>
+      <ul class="pro-tr">${p.treatments.map((t) => `<li>${esc(tName(t.id))} <span>${t.minutes} min</span></li>`).join("")}</ul>
+      <div class="btn-row">${d.canEdit ? `<button class="btn ghost small" data-edit-pro="${esc(p.id)}">Editar</button>` : ""}<button class="btn ghost small" data-exc-for="${esc(p.id)}">+ Excepción</button>${p.active ? "" : '<span class="pill muted">Inactivo</span>'}</div>
+    </article>`).join("") || '<p class="empty">Todavía no hay profesionales.</p>';
+
+  const sel = $("#exc-form").elements.professionalId;
+  const cur = sel.value;
+  sel.innerHTML = d.professionals.filter((p) => p.active).map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+  if (cur) sel.value = cur;
+  const name = (id) => d.professionals.find((p) => p.id === id)?.name ?? id;
+  const when = (e) => e.kind === "rango" ? `${dateOnly(e.fromDate)} – ${dateOnly(e.toDate)}` : e.kind === "franja" ? `${dateOnly(e.fromDate)} · ${e.fromTime}–${e.toTime}` : dateOnly(e.fromDate);
+  const rows = d.exceptions.filter((e) => !e.past);
+  $("#exc-list").innerHTML = rows.length ? `<tr><th>Profesional</th><th>Cuándo</th><th>Tipo</th><th>Motivo</th><th>Turnos afectados</th><th></th></tr>` + rows.map((e) => `
+    <tr><td>${esc(name(e.professionalId))}</td><td class="nowrap">${esc(when(e))}</td><td class="ch">${KIND[e.kind]}</td><td>${esc(e.reason)}</td>
+      <td>${e.affected ? `<span class="pill ${e.notifiedAt ? "ok" : "wait"}">${e.affected} ${e.notifiedAt ? "· avisados" : "· sin avisar"}</span>` : '<span class="ch">ninguno</span>'}</td>
+      <td class="nowrap">${e.affected ? `<button class="btn ghost small" data-exc-view="${esc(e.id)}">Ver turnos</button>` : ""}<button class="btn ghost small" data-exc-del="${esc(e.id)}" aria-label="Quitar excepción">Quitar</button></td></tr>`).join("")
+    : `<tr><td class="empty">No hay excepciones cargadas. Cárguelas cuando un profesional no vaya a atender.</td></tr>`;
+  stamp();
+}
+
+/** Turnos afectados con el botón para avisar por el bot. */
+function affectedHtml(exceptionId, affected, notifiedAt) {
+  if (!affected.length) return '<p class="note-box small">No hay turnos afectados: el bot ya no ofrece esos horarios.</p>';
+  return `<div class="affected-box">
+    <p><b>${affected.length} turno${affected.length > 1 ? "s" : ""} afectado${affected.length > 1 ? "s" : ""}.</b> El bot ya no ofrece esos horarios.</p>
+    <ul class="appt-mini">${affected.map((a) => `<li><span class="when">${esc(fDateTime(a.start))}</span><span class="tr">${esc(a.patient)} · ${esc(a.treatment)}</span><span class="ch">${esc(CH[a.channel] ?? a.channel)}</span></li>`).join("")}</ul>
+    <div class="btn-row"><button class="btn small" data-exc-notify="${esc(exceptionId)}">${notifiedAt ? "Volver a avisar" : "Avisar por el bot para reprogramar"}</button></div>
+    <p class="hint">Cada paciente recibe un mensaje con los botones <i>Reprogramar · Cancelar turno</i>; si elige reprogramar, el bot le ofrece horarios nuevos.${notifiedAt ? ` Último aviso: ${esc(fDateTime(notifiedAt))}.` : ""}</p>
+  </div>`;
+}
+
+let excKind = "dia";
+segment("#exc-kind", (k) => {
+  excKind = k;
+  for (const el of $("#exc-form [data-only]")) el.hidden = el.dataset.only !== k;
+  $("#exc-form [data-label-from]").textContent = k === "rango" ? "Desde" : "Fecha";
+});
+$("#exc-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  const body = { professionalId: f.professionalId.value, kind: excKind, fromDate: f.fromDate.value, toDate: f.toDate.value, fromTime: f.fromTime.value, toTime: f.toTime.value, reason: f.reason.value };
+  try {
+    const r = await post("/exceptions", body);
+    toast("Excepción cargada");
+    $("#exc-result").innerHTML = affectedHtml(r.exception.id, r.affected, null);
+    e.target.elements.reason.value = "";
+    await loadProfessionals();
+  } catch (err) { toast(err.message, true); }
+});
+
+document.addEventListener("click", async (e) => {
+  const v = e.target.closest("[data-exc-view]");
+  if (v) {
+    const r = await api(`/exceptions/${encodeURIComponent(v.dataset.excView)}/affected`).catch((err) => toast(err.message, true));
+    if (r) openDrawer("Turnos afectados", affectedHtml(r.exception.id, r.affected, r.exception.notifiedAt));
+    return;
+  }
+  const n = e.target.closest("[data-exc-notify]");
+  if (n) {
+    n.disabled = true;
+    try {
+      const r = await post(`/exceptions/${encodeURIComponent(n.dataset.excNotify)}/notify`);
+      toast(`Avisos: ${r.sent} enviado(s)${r.demo ? ` · ${r.demo} de ejemplo (quedan en el chat, sin envío)` : ""}${r.failed.length ? ` · ${r.failed.length} con error` : ""}`, !!r.failed.length);
+      n.textContent = "Avisados ✓";
+      refreshBadge();
+      if (state.view === "profesionales") loadProfessionals();
+    } catch (err) { toast(err.message, true); n.disabled = false; }
+    return;
+  }
+  const del = e.target.closest("[data-exc-del]");
+  if (del) {
+    if (!confirm("¿Quitar esta excepción? El bot vuelve a ofrecer esos horarios.")) return;
+    try { await api(`/exceptions/${encodeURIComponent(del.dataset.excDel)}`, { method: "DELETE" }); toast("Excepción quitada"); loadProfessionals(); } catch (err) { toast(err.message, true); }
+    return;
+  }
+  const forP = e.target.closest("[data-exc-for]");
+  if (forP) {
+    $("#exc-form").elements.professionalId.value = forP.dataset.excFor;
+    $("#exc-form").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("#exc-form").elements.fromDate.focus();
+    return;
+  }
+  const ed = e.target.closest("[data-edit-pro]");
+  if (ed) return openProfessionalEditor(state.pros.professionals.find((p) => p.id === ed.dataset.editPro));
+  if (e.target.closest("#pr-add")) return openProfessionalEditor(null);
+});
+
+/** Editor de un profesional (panel lateral). */
+function openProfessionalEditor(p) {
+  const d = state.pros;
+  const isNew = !p;
+  p ??= { id: "", name: "", specialty: "", color: "#59b8ff", calendar: "interno", active: true, hours: [], treatments: [] };
+  const hoursVal = (i) => { const h = p.hours.find((x) => x.weekday === i + 1); return h ? h.blocks.map(([a, b]) => `${a}-${b}`).join(", ") : ""; };
+  const mins = (id) => p.treatments.find((t) => t.id === id)?.minutes;
+  openDrawer(isNew ? "Nuevo profesional" : "Editar profesional", `
+    <form class="kb pro-form" id="pro-form" data-id="${esc(p.id)}">
+      <label>Nombre <input name="name" value="${esc(p.name)}" required maxlength="80" placeholder="Dra. Nombre Apellido" /></label>
+      <label>Especialidad <input name="specialty" value="${esc(p.specialty)}" required maxlength="80" /></label>
+      <div class="two">
+        <label>Color en la agenda <input type="color" name="color" value="${esc(p.color)}" /></label>
+        <label>Calendario <select name="calendar"><option value="interno"${p.calendar === "interno" ? " selected" : ""}>Agenda interna</option><option value="google"${p.calendar === "google" ? " selected" : ""}>Google Calendar</option></select></label>
+      </div>
+      <label class="check"><input type="checkbox" name="active"${p.active ? " checked" : ""} /> Activo (el bot le ofrece turnos)</label>
+      <fieldset><legend>Horario semanal</legend>
+        <p class="hint">Se cruza con el horario de atención de la clínica. Vacío = no atiende ese día.</p>
+        <div class="hours">${DAYS.map((dn, i) => `<span>${dn}</span><input data-weekday="${i + 1}" value="${esc(hoursVal(i))}" placeholder="ej.: 09:00-13:00, 14:00-18:00" aria-label="Horario del ${dn}" />`).join("")}</div>
+      </fieldset>
+      <fieldset><legend>Tratamientos que realiza</legend>
+        <div class="tr-pick">${d.treatments.map((t) => `<label class="check"><input type="checkbox" data-tr="${esc(t.id)}"${mins(t.id) ? " checked" : ""} /> <span>${esc(t.name)}<small>${esc(t.specialty)}</small></span>
+          <input type="number" min="10" max="240" step="5" data-min="${esc(t.id)}" value="${mins(t.id) ?? 30}" aria-label="Minutos de ${esc(t.name)}" /> min</label>`).join("")}</div>
+      </fieldset>
+      <div class="profile-save"><button class="btn" type="submit">Guardar</button><span class="hint">Rige para el bot desde el mensaje siguiente.</span></div>
+    </form>`);
+}
+document.addEventListener("submit", async (e) => {
+  const form = e.target.closest("#pro-form");
+  if (!form) return;
+  e.preventDefault();
+  const f = form.elements;
+  const hours = [];
+  for (const inp of form.querySelectorAll("[data-weekday]")) {
+    const txt = inp.value.trim();
+    if (!txt) continue;
+    hours.push({ weekday: Number(inp.dataset.weekday), blocks: txt.split(/[,;]/).map((b) => b.trim()).filter(Boolean).map((b) => b.split(/\s*[-–a]\s*/).map((x) => x.padStart(5, "0"))) });
+  }
+  const treatments = [...form.querySelectorAll("[data-tr]")].filter((c) => c.checked).map((c) => ({ id: c.dataset.tr, minutes: Number(form.querySelector(`[data-min="${c.dataset.tr}"]`).value) }));
+  const id = form.dataset.id || f.name.value.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").replace(/^(dra?)-/, "prof-").slice(0, 36) || `prof-${Date.now().toString(36)}`;
+  try {
+    await put(`/professionals/${encodeURIComponent(id)}`, { name: f.name.value, specialty: f.specialty.value, color: f.color.value, calendar: f.calendar.value, active: f.active.checked, hours, treatments });
+    toast("Profesional guardado: el bot ya usa estos horarios");
+    closeDrawer();
+    loadProfessionals();
+  } catch (err) { toast(err.message, true); }
 });
 
 // =====================================================================
@@ -876,7 +1090,6 @@ async function loadLearning() {
 function fillKnowledge(k) {
   const set = (name, v) => { form.elements[name].value = v ?? ""; };
   for (const f of ["name", "phone", "address", "reference", "email", "payments", "insurance", "hoursText", "cancellationPolicy", "emergencies", "tone"]) set(f, k[f]);
-  set("professionals", (k.professionals ?? []).join("\n"));
   set("promoName", k.promo?.name);
   set("promoDetail", k.promo?.detail);
   form.elements.menuEnabled.checked = !!k.menu?.enabled;
@@ -950,7 +1163,6 @@ function readKnowledge() {
     name: v("name"), phone: v("phone"), address: v("address"), reference: v("reference"), email: v("email"),
     payments: v("payments"), insurance: v("insurance"), hoursText: v("hoursText"),
     cancellationPolicy: v("cancellationPolicy"), emergencies: v("emergencies"), tone: v("tone") || undefined,
-    professionals: v("professionals").split("\n").map((x) => x.trim()).filter(Boolean),
     promo: { name: v("promoName"), detail: v("promoDetail") },
     hours,
     treatments: rows("#kb-treatments").filter((t) => t.name).map((t) => ({ name: t.name, price: t.price || "consultar", duration: t.duration || "30 min", notes: t.notes || "" })),

@@ -380,3 +380,41 @@ details.card[open] summary { margin-bottom: 12px; }
   .day-item .pill { grid-column: 2; justify-self: start; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ================= Profesionales ================= */
+.pros { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--gap); }
+.pro { display: flex; flex-direction: column; gap: 10px; }
+.pro.inactive { opacity: .6; }
+.pro-head { display: flex; gap: 10px; align-items: flex-start; }
+.pro-head > div { flex: 1; min-width: 0; }
+.pro-head h3 { margin: 0; font-size: 15px; }
+.pro-head p { margin: 2px 0 0; }
+.pro-hours { margin: 0; font-size: 12.5px; color: #cfe3d7; line-height: 1.45; }
+.pro-tr { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.pro-tr li { background: var(--field); border: 1px solid var(--line2); border-radius: 8px; padding: 2px 8px; font-size: 12px; }
+.pro-tr li span { color: var(--muted); }
+.pro .btn-row { margin: auto 0 0; }
+.dot-c { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dot-c.big { width: 14px; height: 14px; margin-top: 3px; }
+.exc-form .seg { margin-top: 10px; }
+.affected-box { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.affected-box p { margin: 0; }
+.tr-pick { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.tr-pick label.check { display: grid; grid-template-columns: 18px minmax(0, 1fr) 70px auto; gap: 8px; align-items: center; margin: 0; }
+.tr-pick small { display: block; color: var(--muted); font-size: 11px; }
+.tr-pick input[type=number] { padding: 4px 6px; }
+.kb input[type=color] { height: 34px; padding: 2px; }
+
+/* Agenda por profesional */
+.cal-appt { border-left-color: var(--pc, var(--accent)); }
+.cal-appt.unconfirmed { box-shadow: inset 0 -2px 0 var(--warn); }
+.cal-appt.st-cancelada { border-left-color: var(--bad); }
+.cal-dayhead.prof { align-items: center; }
+.cal-dayhead.prof span { font-size: 11px; width: 100%; order: 3; }
+.cal-exc { position: absolute; left: 0; right: 0; z-index: 1; background: repeating-linear-gradient(135deg, #3a1d1d55, #3a1d1d55 8px, #2a151555 8px, #2a151555 16px); border-top: 1px solid #6b2525; border-bottom: 1px solid #6b2525; pointer-events: none; }
+.cal-exc span { position: sticky; top: 4px; display: inline-block; margin: 4px; font-size: 11px; color: #ffb3b3; background: #2a1414; border-radius: 6px; padding: 1px 6px; }
+#ag-legend:empty { display: none; }
+
+.exc-pill { font-style: normal; font-size: 11px; color: #ffb3b3; background: #3d1515; border: 1px solid #6b2525; border-radius: 999px; padding: 1px 8px; order: 4; }
+.cal-exc { background: repeating-linear-gradient(135deg, #5a222244, #5a222244 8px, transparent 8px, transparent 16px); }
+.cal-appt.affected { outline: 1.5px dashed var(--bad); outline-offset: -1px; }

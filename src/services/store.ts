@@ -3,7 +3,7 @@
  * la implementación con Supabase (PostgreSQL) que cumple la misma interfaz.
  */
 
-import type { ClinicKnowledge } from "../clinics/types.js";
+import type { ClinicKnowledge, Professional } from "../clinics/types.js";
 import { score, terms } from "./textSearch.js";
 
 export type Channel = "web" | "whatsapp" | "cli" | "test";
@@ -33,6 +33,8 @@ export interface Appointment {
   patientId: string;
   patientName: string;
   treatment: string;
+  /** Profesional que atiende (la doble reserva se controla por profesional). */
+  professionalId: string | null;
   start: string; // ISO con zona
   end: string;
   status: AppointmentStatus;
@@ -55,11 +57,15 @@ export interface ChatMessage {
   options?: string[];
   /** Mensajes que envía el bot por iniciativa propia (recordatorios, seguimiento). */
   meta?: {
-    kind: "reminder24" | "reminder2" | "followup" | "waitlist_offer" | "reactivation";
+    kind: "reminder24" | "reminder2" | "followup" | "waitlist_offer" | "reactivation" | "reschedule_request";
     appointmentId?: string;
     /** Lista de espera: entrada y horario ofrecido (hora local YYYY-MM-DDTHH:mm). */
     waitlistId?: string;
     slot?: string;
+    /** Profesional del horario ofrecido (lista de espera). */
+    professionalId?: string;
+    /** Motivo del pedido de reprogramación (excepción del profesional). */
+    reason?: string;
   };
 }
 
@@ -119,6 +125,8 @@ export interface WaitlistEntry {
   patientId: string;
   patientName: string;
   treatment: string;
+  /** Profesional elegido; null = cualquiera que haga el tratamiento. */
+  professionalId: string | null;
   /** Rango de días aceptable (YYYY-MM-DD, hora local de la clínica). */
   fromDate: string;
   toDate: string;
@@ -129,6 +137,27 @@ export interface WaitlistEntry {
   offeredAt: string | null;
   /** Horarios que ya rechazó o dejó vencer: no se le vuelven a ofrecer. */
   declinedSlots: string[];
+  createdAt: string;
+}
+
+/**
+ * Excepción en la agenda de un profesional: un día completo, una franja de un día
+ * o un rango de días (vacaciones). Mientras dura, el bot no ofrece esos horarios.
+ */
+export interface ProfessionalException {
+  id: string;
+  professionalId: string;
+  kind: "dia" | "franja" | "rango";
+  /** Fechas locales YYYY-MM-DD (inclusive). */
+  fromDate: string;
+  toDate: string;
+  /** Solo en «franja»: horas locales HH:mm. */
+  fromTime: string | null;
+  toTime: string | null;
+  reason: string;
+  createdBy: string;
+  /** Cuándo se avisó por el bot a los pacientes afectados. */
+  notifiedAt: string | null;
   createdAt: string;
 }
 
@@ -195,9 +224,17 @@ export interface Store {
   listMetrics(): Promise<TurnMetric[]>;
 
   // Lista de espera
-  addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots">): Promise<WaitlistEntry>;
+  addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots" | "professionalId"> & { professionalId?: string | null }): Promise<WaitlistEntry>;
   listWaitlist(status?: WaitlistStatus[]): Promise<WaitlistEntry[]>;
   updateWaitlist(id: string, patch: Partial<Omit<WaitlistEntry, "id" | "createdAt">>): Promise<WaitlistEntry>;
+
+  // Profesionales y excepciones de agenda
+  listProfessionals(): Promise<Professional[]>;
+  saveProfessional(p: Professional): Promise<Professional>;
+  listExceptions(): Promise<ProfessionalException[]>;
+  addException(e: Omit<ProfessionalException, "id" | "createdAt" | "notifiedAt">): Promise<ProfessionalException>;
+  updateException(id: string, patch: Partial<Pick<ProfessionalException, "notifiedAt">>): Promise<void>;
+  deleteException(id: string): Promise<void>;
 
   // Zona de aprendizaje
   updateKnowledge(k: ClinicKnowledge): Promise<void>;
@@ -224,6 +261,8 @@ interface MemoryData {
   chunks: Array<{ documentId: string; clinicId: string; content: string }>;
   knowledge: Map<string, ClinicKnowledge>;
   waitlist: Array<Owned<WaitlistEntry>>;
+  professionals: Array<Owned<Professional>>;
+  exceptions: Array<Owned<ProfessionalException>>;
 }
 
 export const DEFAULT_CLINIC_ID = "sonrisa-clara";
@@ -239,7 +278,10 @@ export class InMemoryStore implements Store {
 
   /** El reloj es inyectable para que las pruebas con tiempo simulado fechen bien los registros. */
   constructor(private clock: () => Date = () => new Date(), readonly clinicId = DEFAULT_CLINIC_ID, data?: MemoryData) {
-    this.data = data ?? { patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [], documents: [], chunks: [], knowledge: new Map(), waitlist: [] };
+    this.data = data ?? {
+      patients: new Map(), conversations: new Map(), appointments: new Map(), handoffs: [], metrics: [], documents: [], chunks: [],
+      knowledge: new Map(), waitlist: [], professionals: [], exceptions: [],
+    };
   }
   forClinic(clinicId: string): Store {
     return new InMemoryStore(this.clock, clinicId, this.data);
@@ -297,8 +339,10 @@ export class InMemoryStore implements Store {
 
   async createAppointment(a: Omit<Appointment, "id" | "createdAt">) {
     const active = (s: AppointmentStatus) => s === "confirmada" || s === "pendiente";
-    // Mismo comportamiento que el índice único (clinic_id, start_at) de Supabase.
-    if (active(a.status) && [...this.data.appointments.values()].some((x) => this.mine(x) && active(x.status) && x.start === a.start)) {
+    // Mismo comportamiento que la restricción de exclusión de Supabase: un profesional
+    // no puede tener dos turnos activos que se superpongan (aunque duren distinto).
+    const overlaps = (x: Appointment) => x.professionalId === a.professionalId && x.start < a.end && x.end > a.start;
+    if (active(a.status) && a.professionalId && [...this.data.appointments.values()].some((x) => this.mine(x) && active(x.status) && overlaps(x))) {
       throw new SlotTakenError();
     }
     const ap: Owned<Appointment> = { ...a, id: id("cita"), createdAt: this.now(), clinicId: this.clinicId };
@@ -350,8 +394,8 @@ export class InMemoryStore implements Store {
     return this.data.metrics.filter((m) => this.mine(m)).map((m) => strip(m));
   }
 
-  async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots">) {
-    const x: Owned<WaitlistEntry> = { ...e, id: id("esp"), status: "esperando", offeredSlot: null, offeredAt: null, declinedSlots: [], createdAt: this.now(), clinicId: this.clinicId };
+  async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots" | "professionalId"> & { professionalId?: string | null }) {
+    const x: Owned<WaitlistEntry> = { ...e, professionalId: e.professionalId ?? null, id: id("esp"), status: "esperando", offeredSlot: null, offeredAt: null, declinedSlots: [], createdAt: this.now(), clinicId: this.clinicId };
     this.data.waitlist.push(x);
     return strip(x);
   }
@@ -366,8 +410,34 @@ export class InMemoryStore implements Store {
     return structuredClone(strip(w));
   }
 
+  async listProfessionals() {
+    return this.data.professionals.filter((p) => this.mine(p)).map((p) => structuredClone(strip(p)));
+  }
+  async saveProfessional(p: Professional) {
+    const i = this.data.professionals.findIndex((x) => this.mine(x) && x.id === p.id);
+    const row = { ...structuredClone(p), clinicId: this.clinicId };
+    if (i >= 0) this.data.professionals[i] = row;
+    else this.data.professionals.push(row);
+    return structuredClone(p);
+  }
+  async listExceptions() {
+    return this.data.exceptions.filter((e) => this.mine(e)).map((e) => structuredClone(strip(e))).sort((a, b) => a.fromDate.localeCompare(b.fromDate));
+  }
+  async addException(e: Omit<ProfessionalException, "id" | "createdAt" | "notifiedAt">) {
+    const x: Owned<ProfessionalException> = { ...e, id: id("exc"), notifiedAt: null, createdAt: this.now(), clinicId: this.clinicId };
+    this.data.exceptions.push(x);
+    return structuredClone(strip(x));
+  }
+  async updateException(eid: string, patch: Partial<Pick<ProfessionalException, "notifiedAt">>) {
+    const e = this.data.exceptions.find((x) => this.mine(x) && x.id === eid);
+    if (e) Object.assign(e, patch);
+  }
+  async deleteException(eid: string) {
+    this.data.exceptions = this.data.exceptions.filter((x) => !(this.mine(x) && x.id === eid));
+  }
+
   /** Carga datos de ejemplo ya armados (ids y fechas propios) en esta clínica. Solo en memoria. */
-  importDemo(d: { patients: Patient[]; conversations: Conversation[]; appointments: Appointment[]; handoffs: Handoff[]; metrics: TurnMetric[]; waitlist: WaitlistEntry[] }) {
+  importDemo(d: { patients: Patient[]; conversations: Conversation[]; appointments: Appointment[]; handoffs: Handoff[]; metrics: TurnMetric[]; waitlist: WaitlistEntry[]; exceptions?: ProfessionalException[] }) {
     const c = this.clinicId;
     for (const p of d.patients) this.data.patients.set(p.id, { ...structuredClone(p), clinicId: c });
     for (const v of d.conversations) this.data.conversations.set(v.id, { ...structuredClone(v), clinicId: c });
@@ -375,6 +445,7 @@ export class InMemoryStore implements Store {
     for (const h of d.handoffs) this.data.handoffs.push({ ...h, clinicId: c });
     for (const m of d.metrics) this.data.metrics.push({ ...m, clinicId: c });
     for (const w of d.waitlist) this.data.waitlist.push({ ...structuredClone(w), clinicId: c });
+    for (const e of d.exceptions ?? []) this.data.exceptions.push({ ...structuredClone(e), clinicId: c });
   }
 
   async updateKnowledge(k: ClinicKnowledge) {

@@ -88,6 +88,8 @@ export const config = {
     templateFollowup: env("WHATSAPP_TEMPLATE_FOLLOWUP", "seguimiento_promo"),
     templateWaitlist: env("WHATSAPP_TEMPLATE_WAITLIST", "turno_liberado"),
     templateReactivation: env("WHATSAPP_TEMPLATE_REACTIVATION", "reactivacion_paciente"),
+    /** Aviso de reprogramación cuando un profesional no va a atender (excepción de agenda). */
+    templateReschedule: env("WHATSAPP_TEMPLATE_RESCHEDULE", "turno_reprogramar"),
     templateLang: env("WHATSAPP_TEMPLATE_LANG", "es"),
   },
 

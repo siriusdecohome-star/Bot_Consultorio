@@ -83,11 +83,8 @@ create table if not exists appointments (
   created_at            timestamptz not null default now()
 );
 
--- Defensa contra la doble reserva, POR CLÍNICA: la base rechaza dos turnos activos en el
--- mismo horario de la misma clínica, aunque dos pedidos lleguen a la vez por canales distintos.
--- Dos clínicas distintas sí pueden tener un turno a la misma hora.
-create unique index if not exists appointments_no_double_booking
-  on appointments (clinic_id, start_at) where status in ('confirmada','pendiente');
+-- La defensa contra la doble reserva es POR PROFESIONAL (ver «Multidoctores» más abajo):
+-- dos profesionales pueden atender a la misma hora; uno solo, no.
 create index if not exists appointments_clinic_start_idx on appointments (clinic_id, start_at);
 create index if not exists appointments_patient_idx on appointments (patient_id);
 
@@ -154,6 +151,54 @@ alter table conversations add column if not exists assigned_to text;
 alter table conversations add column if not exists closed_at timestamptz;
 alter table conversations add column if not exists closed_reason text;
 
+-- ============================================================
+-- Multidoctores: profesionales, excepciones de agenda y doble reserva por profesional.
+-- ============================================================
+create extension if not exists btree_gist;
+
+create table if not exists professionals (
+  id          text not null,
+  clinic_id   text not null references clinics(id) on delete cascade,
+  name        text not null,
+  specialty   text not null,
+  color       text not null default '#25d366',
+  hours       jsonb not null default '[]'::jsonb,    -- horario semanal: [{weekday, blocks: [["09:00","13:00"]]}]
+  treatments  jsonb not null default '[]'::jsonb,    -- tratamientos que realiza: [{id, minutes}]
+  calendar    text not null default 'interno' check (calendar in ('google','interno')),
+  active      boolean not null default true,
+  created_at  timestamptz not null default now(),
+  primary key (clinic_id, id)
+);
+
+create table if not exists professional_exceptions (
+  id               text primary key,
+  clinic_id        text not null references clinics(id) on delete cascade,
+  professional_id  text not null,
+  kind             text not null check (kind in ('dia','franja','rango')),
+  from_date        date not null,
+  to_date          date not null,
+  from_time        text,            -- solo en «franja», HH:mm local
+  to_time          text,
+  reason           text not null,
+  created_by       text not null,
+  notified_at      timestamptz,     -- cuándo se avisó por el bot a los pacientes afectados
+  created_at       timestamptz not null default now(),
+  foreign key (clinic_id, professional_id) references professionals (clinic_id, id) on delete cascade
+);
+create index if not exists professional_exceptions_by_clinic on professional_exceptions (clinic_id, from_date);
+
+alter table appointments add column if not exists professional_id text;
+-- Doble reserva por profesional: la base rechaza dos turnos activos del mismo profesional
+-- que se SUPERPONGAN (no solo que empiecen igual: cada tratamiento dura distinto).
+drop index if exists appointments_no_double_booking;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'appointments_no_double_booking_professional') then
+    alter table appointments add constraint appointments_no_double_booking_professional
+      exclude using gist (clinic_id with =, professional_id with =, tstzrange(start_at, end_at, '[)') with &&)
+      where (status in ('confirmada','pendiente'));
+  end if;
+end $$;
+
 -- Lista de espera (punto 4): si se libera un horario dentro del rango y la franja,
 -- se le ofrece a la primera persona en espera.
 create table if not exists waitlist (
@@ -169,6 +214,7 @@ create table if not exists waitlist (
   offered_slot    text,           -- horario ofrecido ahora, hora local YYYY-MM-DDTHH:mm
   offered_at      timestamptz,
   declined_slots  text[] not null default '{}',
+  professional_id text,           -- null = cualquiera que haga el tratamiento
   created_at      timestamptz not null default now()
 );
 create index if not exists waitlist_clinic_status_idx on waitlist (clinic_id, status, created_at);
@@ -240,6 +286,9 @@ alter table handoffs       enable row level security;
 alter table turn_metrics   enable row level security;
 alter table test_results   enable row level security;
 alter table waitlist       enable row level security;
+alter table waitlist add column if not exists professional_id text;
+alter table professionals            enable row level security;
+alter table professional_exceptions  enable row level security;
 
 -- Las políticas se recrean para que el archivo se pueda volver a ejecutar.
 drop policy if exists clinics_read  on clinics;
@@ -257,7 +306,7 @@ create policy members_read on clinic_members for select to authenticated
 do $$
 declare t text;
 begin
-  foreach t in array array['patients','conversations','appointments','handoffs','waitlist'] loop
+  foreach t in array array['patients','conversations','appointments','handoffs','waitlist','professional_exceptions'] loop
     execute format('drop policy if exists %I on %I', t || '_team', t);
     execute format(
       'create policy %I on %I for all to authenticated
@@ -266,6 +315,13 @@ begin
       t || '_team', t);
   end loop;
 end $$;
+
+-- Profesionales: todo el equipo los ve; solo el admin los edita.
+drop policy if exists professionals_read  on professionals;
+drop policy if exists professionals_admin on professionals;
+create policy professionals_read  on professionals for select to authenticated using (clinic_id in (select public.my_clinic_ids()));
+create policy professionals_admin on professionals for all to authenticated
+  using (public.is_clinic_admin(clinic_id)) with check (public.is_clinic_admin(clinic_id));
 
 -- Documentos: todo el equipo los lee (el probador y el bot los usan); solo el admin los sube o borra.
 alter table documents       enable row level security;
@@ -298,7 +354,7 @@ create policy test_results_read on test_results for select to authenticated usin
 grant usage on schema public to service_role, authenticated;
 grant select, insert, update, delete on all tables in schema public to service_role;
 grant usage, select on all sequences in schema public to service_role;
-grant select, insert, update, delete on patients, conversations, appointments, handoffs, waitlist to authenticated;
+grant select, insert, update, delete on patients, conversations, appointments, handoffs, waitlist, professional_exceptions, professionals to authenticated;
 grant select, update on clinics to authenticated;
 grant select on clinic_members, turn_metrics, test_results to authenticated;
 grant select, insert, delete on documents, document_chunks to authenticated;

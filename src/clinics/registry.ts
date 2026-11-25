@@ -25,6 +25,7 @@ export function rowToClinic(r: any): ClinicProfile {
     primary: r.is_primary,
     calendarColor: r.calendar_color,
     knowledge: r.knowledge as ClinicKnowledge,
+    professionals: [],
   };
 }
 
@@ -49,7 +50,19 @@ export async function loadClinics(services: Services): Promise<ClinicProfile[]> 
     console.warn("⚠ La tabla clinics está vacía: se usan las clínicas de ejemplo en memoria. Ejecute npm run seed.");
     return demoClinics();
   }
-  return data.map(rowToClinic);
+  // Profesionales de cada clínica (tabla professionals). Si una clínica no tiene, se usan los de ejemplo.
+  const { data: profs, error: e2 } = await db.from("professionals").select("*").order("created_at");
+  if (e2) throw new Error(`No se pudieron leer los profesionales: ${e2.message}. ¿Ejecutó supabase/schema.sql?`);
+  const demo = new Map(demoClinics().map((c) => [c.id, c.professionals]));
+  return data.map((r: any) => {
+    const c = rowToClinic(r);
+    const mine = (profs ?? []).filter((p: any) => p.clinic_id === c.id).map((p: any) => ({
+      id: p.id, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours ?? [], treatments: p.treatments ?? [], calendar: p.calendar, active: p.active,
+    }));
+    if (!mine.length && demo.has(c.id)) console.warn(`⚠ ${c.name} no tiene profesionales en la base: se usan los de ejemplo. Ejecute npm run seed.`);
+    c.professionals = mine.length ? mine : structuredClone(demo.get(c.id) ?? []);
+    return c;
+  });
 }
 
 export interface ClinicRuntime {

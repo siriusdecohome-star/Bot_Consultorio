@@ -1,8 +1,8 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
-import type { ClinicProfile } from "../clinics/types.js";
+import type { ClinicProfile, Professional } from "../clinics/types.js";
 import type {
-  Appointment, AppointmentStatus, ChatMessage, Conversation, Handoff, Patient, TurnMetric, WaitlistEntry,
+  Appointment, AppointmentStatus, ChatMessage, Conversation, Handoff, Patient, ProfessionalException, TurnMetric, WaitlistEntry,
 } from "../services/store.js";
 
 /**
@@ -23,6 +23,7 @@ export interface DemoData {
   handoffs: Handoff[];
   metrics: TurnMetric[];
   waitlist: WaitlistEntry[];
+  exceptions: ProfessionalException[];
 }
 
 /** Generador pseudoaleatorio con semilla (mulberry32): reproducible. */
@@ -94,33 +95,53 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
     }
   };
 
-  // --- Horarios ocupados (sin repetir: una sola agenda por clínica en esta etapa) ---
-  const used = new Set<string>();
-  const slotsOf = (day: DateTime) => {
-    const h = k.hours.find((x) => x.weekday === day.weekday);
-    if (!h) return [];
-    const out: DateTime[] = [];
-    for (const [a, b] of h.blocks) {
-      let s = DateTime.fromISO(`${day.toISODate()}T${a}`, { zone: tz });
-      const e = DateTime.fromISO(`${day.toISODate()}T${b}`, { zone: tz });
-      for (; s.plus({ minutes: slot }) <= e; s = s.plus({ minutes: slot })) out.push(s);
+  // --- Agenda por profesional: cada turno con un profesional que hace el tratamiento y atiende ese día ---
+  const profs = clinic.professionals.filter((p) => p.active);
+  const tIdOf = (name: string) => k.treatments.find((t) => t.name === name)?.id;
+  const doers = (treatment: string): Professional[] => {
+    const id = tIdOf(treatment);
+    const d = profs.filter((p) => id && p.treatments.some((x) => x.id === id));
+    if (d.length) return d;
+    const general = profs.filter((p) => /general/i.test(p.specialty));
+    return general.length ? general : profs;
+  };
+  const minutesOf = (p: Professional, treatment: string) => p.treatments.find((x) => x.id === tIdOf(treatment))?.minutes ?? slot;
+  const used = new Map<string, Array<[number, number]>>(); // profesional → intervalos ocupados (ms)
+  const blocksOf = (p: Professional, day: DateTime) => {
+    const at = (hm: string) => DateTime.fromISO(`${day.toISODate()}T${hm}`, { zone: tz });
+    const clinicB = k.hours.find((x) => x.weekday === day.weekday)?.blocks ?? [];
+    const own = p.hours.find((x) => x.weekday === day.weekday)?.blocks ?? [];
+    const out: Array<[DateTime, DateTime]> = [];
+    for (const [a1, b1] of own) for (const [a2, b2] of clinicB) {
+      const a = DateTime.max(at(a1), at(a2)), b = DateTime.min(at(b1), at(b2));
+      if (a < b) out.push([a, b]);
     }
     return out;
   };
-  const freeSlot = (from: DateTime, maxDays: number): DateTime | null => {
-    for (let tries = 0; tries < 30; tries++) {
+  const freeSlot = (from: DateTime, maxDays: number, treatment: string): { start: DateTime; prof: Professional; minutes: number } | null => {
+    for (let tries = 0; tries < 40; tries++) {
       const day = from.startOf("day").plus({ days: Math.floor(r() * maxDays) });
-      const free = slotsOf(day).filter((s) => s > from && !used.has(s.toISO()!));
+      const prof = pick(doers(treatment));
+      const minutes = minutesOf(prof, treatment);
+      const busy = used.get(prof.id) ?? [];
+      const free: DateTime[] = [];
+      for (const [a, b] of blocksOf(prof, day)) {
+        for (let s = a; s.plus({ minutes }) <= b; s = s.plus({ minutes: slot })) {
+          const e = s.plus({ minutes });
+          if (s > from && !busy.some(([bs, be]) => s.toMillis() < be && e.toMillis() > bs)) free.push(s);
+        }
+      }
       if (free.length) {
-        const s = pick(free);
-        used.add(s.toISO()!);
-        return s;
+        const start = pick(free);
+        used.set(prof.id, [...busy, [start.toMillis(), start.plus({ minutes }).toMillis()]]);
+        return { start, prof, minutes };
       }
     }
     return null;
   };
+  const release = (profId: string, start: DateTime) => used.set(profId, (used.get(profId) ?? []).filter(([s]) => s !== start.toMillis()));
 
-  const data: DemoData = { patients: [], conversations: [], appointments: [], handoffs: [], metrics: [], waitlist: [] };
+  const data: DemoData = { patients: [], conversations: [], appointments: [], handoffs: [], metrics: [], waitlist: [], exceptions: [] };
   const msg = (role: ChatMessage["role"], text: string, at: DateTime, extra?: Partial<ChatMessage>): ChatMessage => ({ role, text, at: iso(at), ...(extra ?? {}) });
   const newConv = (pid: string, cid: string, channel: Patient["channel"], first: DateTime, messages: ChatMessage[]): Conversation => ({
     id: cid, patientId: pid, channel, llmState: [], llmProvider: "mock", messages, privacyShown: true,
@@ -203,15 +224,16 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
     let closedHow: CloseHow | null = null;
 
     if (books) {
-      const start = upcoming ? freeSlot(DateTime.max(first.plus({ hours: 2 }), nowDt.plus({ hours: 3 })), 8) : freeSlot(first.plus({ hours: 2 }), 9);
-      if (start) {
+      const got = upcoming ? freeSlot(DateTime.max(first.plus({ hours: 2 }), nowDt.plus({ hours: 3 })), 8, treatment) : freeSlot(first.plus({ hours: 2 }), 9, treatment);
+      if (got) {
+        const { start, prof, minutes } = got;
         patient.name = who.full;
         messages.push(msg("patient", pick(["Sí, quiero un turno", "Dale, buscame uno", "Sí por favor", `Sí, ${start.hour < 13 ? "a la mañana" : "a la tarde"} si puede ser`]), at(2)));
-        messages.push(msg("bot", `Tengo libre el *${when(start)}*, entre otros horarios. ¿Le sirve?`, at(2.1)));
+        messages.push(msg("bot", `Tengo libre el *${when(start)}* con ${prof.name}, entre otros horarios. ¿Le sirve?`, at(2.1)));
         messages.push(msg("patient", pick(["Sí, perfecto", "Ese me sirve", "Dale, ese", "Sí!"]), at(3)));
         messages.push(msg("bot", "¡Excelente! Para confirmar la reserva, ¿me indica su nombre y apellido?", at(3.1)));
         messages.push(msg("patient", pick([who.full, `Soy ${who.full}`, who.full.toLowerCase()]), at(4)));
-        messages.push(msg("bot", `¡Listo, ${who.first}! ✅ Su turno quedó confirmado:\n\n📅 *${when(start)}*\n🦷 ${treatment}\n📍 ${address}\n\nLe enviaré un recordatorio el día anterior.`, at(4.1)));
+        messages.push(msg("bot", `¡Listo, ${who.first}! ✅ Su turno quedó confirmado:\n\n📅 *${when(start)}*\n🦷 ${treatment}\n👩‍⚕️ ${prof.name}\n📍 ${address}\n\nLe enviaré un recordatorio el día anterior.`, at(4.1)));
         const bookedAt = at(4.1);
         closedHow = { reason: "turno_confirmado", at: bookedAt.plus({ seconds: 2 }) };
         const past = start < nowDt;
@@ -240,10 +262,10 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
           messages.push(msg("patient", pick(["Hola, no voy a poder ir, quiero cancelar", "Buenas, tengo que cancelar el turno, me surgió un viaje", "Hola, perdón, ¿puedo cancelar?"]), cAt));
           messages.push(msg("bot", "Listo, cancelé su turno y el horario quedó libre. ¿Lo reprogramamos?", cAt.plus({ seconds: 5 })));
           closedHow = { reason: "turno_cancelado", at: cAt.plus({ seconds: 7 }) };
-          used.delete(start.toISO()!);
+          release(prof.id, start);
         }
         data.appointments.push({
-          id: id("t", i), patientId: pid, patientName: who.full, treatment, start: iso(start), end: iso(start.plus({ minutes: slot })),
+          id: id("t", i), patientId: pid, patientName: who.full, treatment, professionalId: prof.id, start: iso(start), end: iso(start.plus({ minutes })),
           status, calendarEventId: "", confirmedByPatient: confirmed,
           reminder24Sent: past || remindAt < nowDt, reminder2Sent: past, createdAt: iso(bookedAt), cancelledAt,
         });
@@ -402,8 +424,9 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
       id: pid, phone: ph, name: who.full, profileName: who.profile, contactPhone: ph,
       notes: "", tags: [], channel: "whatsapp", source: null, createdAt: iso(visit.minus({ days: 3 })),
     });
+    const rtTreatment = pick(treatments);
     data.appointments.push({
-      id: id("rt", j), patientId: pid, patientName: who.full, treatment: pick(treatments), start: iso(visit), end: iso(visit.plus({ minutes: slot })),
+      id: id("rt", j), patientId: pid, patientName: who.full, treatment: rtTreatment, professionalId: doers(rtTreatment)[0]?.id ?? null, start: iso(visit), end: iso(visit.plus({ minutes: slot })),
       status: "asistio", calendarEventId: "", confirmedByPatient: true, reminder24Sent: true, reminder2Sent: true, createdAt: iso(visit.minus({ days: 3 })),
     });
   }
@@ -415,10 +438,34 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
     p.name ??= person().full;
     data.waitlist.push({
       id: id("w", j), patientId: p.id, patientName: p.name, treatment: j % 2 ? pick(treatments) : `${k.promo.name} (promo)`,
-      fromDate: from.toISODate()!, toDate: from.plus({ days: 4 }).toISODate()!, franja: (["manana", "tarde", "cualquiera"] as const)[j % 3]!,
+      fromDate: from.toISODate()!, toDate: from.plus({ days: 4 }).toISODate()!, franja: (["manana", "tarde", "cualquiera"] as const)[j % 3]!, professionalId: null,
       status: "esperando", offeredSlot: null, offeredAt: null, declinedSlots: [], createdAt: iso(today.minus({ days: j + 1 }).set({ hour: 11 })),
     });
   });
+
+  // Excepciones de agenda: un día de curso con turnos afectados (para avisar por el bot) y unas vacaciones futuras.
+  const upcomingActive = data.appointments.filter((a) => ["confirmada", "pendiente"].includes(a.status) && new Date(a.start) > now && a.professionalId);
+  const byDay = new Map<string, number>();
+  for (const a of upcomingActive) {
+    const key = `${a.professionalId}|${DateTime.fromISO(a.start).setZone(tz).toISODate()}`;
+    byDay.set(key, (byDay.get(key) ?? 0) + 1);
+  }
+  const busiest = [...byDay.entries()].filter(([k]) => k.split("|")[1]! > today.toISODate()!).sort((a, b) => b[1] - a[1])[0];
+  if (busiest) {
+    const [profId, date] = busiest[0].split("|") as [string, string];
+    data.exceptions.push({
+      id: id("x", 0), professionalId: profId, kind: "dia", fromDate: date, toDate: date, fromTime: null, toTime: null,
+      reason: "Curso de actualización", createdBy: `admin@${primary ? "sonrisaclara" : "altamira"}.demo.test`, notifiedAt: null, createdAt: iso(nowDt.minus({ hours: 3 })),
+    });
+  }
+  const other = profs.find((p) => p.id !== busiest?.[0].split("|")[0]);
+  if (other) {
+    const from = today.plus({ days: 21 });
+    data.exceptions.push({
+      id: id("x", 1), professionalId: other.id, kind: "rango", fromDate: from.toISODate()!, toDate: from.plus({ days: 6 }).toISODate()!,
+      fromTime: null, toTime: null, reason: "Vacaciones", createdBy: `admin@${primary ? "sonrisaclara" : "altamira"}.demo.test`, notifiedAt: null, createdAt: iso(nowDt.minus({ days: 2 })),
+    });
+  }
 
   return data;
 }

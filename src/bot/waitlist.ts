@@ -3,7 +3,8 @@ import { config } from "../config.js";
 import { withClinic } from "../clinics/context.js";
 import type { ClinicProfile } from "../clinics/types.js";
 import { kb } from "../data/knowledge.js";
-import { Availability, type CalendarService } from "../services/calendar.js";
+import type { CalendarService } from "../services/calendar.js";
+import { Availability, candidatesFor, minutesFor, professionalById } from "../services/availability.js";
 import type { Notifier, OutboundMessage } from "../services/notifier.js";
 import type { Store, WaitlistEntry } from "../services/store.js";
 import { human, parseLocal, toLocal, type Clock } from "../services/time.js";
@@ -24,19 +25,23 @@ export class WaitlistService {
     private offerMinutes = config.waitlist.offerMinutes,
   ) {}
 
-  /** Se liberó `slot` (hora local YYYY-MM-DDTHH:mm): se ofrece a quien corresponda. Devuelve la entrada ofrecida. */
-  onSlotFreed(slot: string): Promise<WaitlistEntry | null> {
-    return withClinic(this.clinic, () => this.offer(slot));
+  /**
+   * Se liberó `slot` (hora local YYYY-MM-DDTHH:mm) de un profesional: se ofrece a quien
+   * corresponda (que espere a ese profesional o a cualquiera, y que el profesional haga su tratamiento).
+   * Devuelve la entrada ofrecida.
+   */
+  onSlotFreed(slot: string, professionalId: string | null = null): Promise<WaitlistEntry | null> {
+    return withClinic(this.clinic, () => this.offer(slot, professionalId));
   }
 
   /** La persona rechazó la oferta: sigue en espera y el horario pasa a la siguiente. */
-  decline(entryId: string, slot: string): Promise<WaitlistEntry | null> {
+  decline(entryId: string, slot: string, professionalId: string | null = null): Promise<WaitlistEntry | null> {
     return withClinic(this.clinic, async () => {
       const e = (await this.store.listWaitlist()).find((x) => x.id === entryId);
       if (e && e.status === "ofrecido" && e.offeredSlot === slot) {
         await this.store.updateWaitlist(e.id, { status: "esperando", offeredSlot: null, offeredAt: null, declinedSlots: [...e.declinedSlots, slot] });
       }
-      return this.offer(slot);
+      return this.offer(slot, professionalId);
     });
   }
 
@@ -64,14 +69,20 @@ export class WaitlistService {
     return !e.declinedSlots.includes(slot);
   }
 
-  private async offer(slot: string): Promise<WaitlistEntry | null> {
+  private async offer(slot: string, professionalId: string | null): Promise<WaitlistEntry | null> {
     const start = parseLocal(slot);
-    // Que siga libre y reservable (puede haberlo tomado otra persona mientras tanto).
-    if (await new Availability(this.calendar, this.clock).validate(start)) return null;
+    const avail = new Availability(this.calendar, this.clock, this.store);
     const all = await this.store.listWaitlist(["esperando", "ofrecido"]);
     if (all.some((e) => e.status === "ofrecido" && e.offeredSlot === slot)) return null; // ya está ofrecido
     const busy = new Set(all.filter((e) => e.status === "ofrecido").map((e) => e.id));
     for (const e of all.filter((x) => x.status === "esperando" && !busy.has(x.id) && this.matches(x, slot))) {
+      // El profesional del horario liberado tiene que servirle (el que pidió, o cualquiera que haga su tratamiento)
+      // y el horario tiene que seguir libre para ese tratamiento (puede haberlo tomado otra persona).
+      const options = candidatesFor({ treatment: e.treatment, professionalId: e.professionalId })
+        .filter((p) => !professionalId || p.id === professionalId);
+      let prof = null;
+      for (const p of options) if (!(await avail.validate(start, p, minutesFor(p, e.treatment)))) { prof = p; break; }
+      if (!prof) continue;
       const patient = await this.store.getPatient(e.patientId);
       // Los pacientes de ejemplo no tienen un teléfono real al que escribir.
       if (!patient || patient.id.startsWith("demo_")) continue;
@@ -80,10 +91,10 @@ export class WaitlistService {
         patientId: patient.id, from: start.startOf("day").toUTC().toISO()!, to: start.endOf("day").toUTC().toISO()!, status: ["confirmada", "pendiente"],
       });
       if (sameDay.length) continue;
-      const msg = offerMessage(e, start, this.offerMinutes);
+      const msg = offerMessage(e, start, this.offerMinutes, prof.name);
       await this.notifier.send(patient.channel, patient.phone, msg);
       const conv = await this.store.getOrCreateConversation(patient, patient.channel);
-      conv.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), meta: { kind: "waitlist_offer", waitlistId: e.id, slot } });
+      conv.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), meta: { kind: "waitlist_offer", waitlistId: e.id, slot, professionalId: prof.id } });
       conv.privacyShown = true;
       await this.store.saveConversation(conv);
       return this.store.updateWaitlist(e.id, { status: "ofrecido", offeredSlot: slot, offeredAt: this.clock().toISOString() });
@@ -94,11 +105,11 @@ export class WaitlistService {
 
 const firstName = (n: string) => n.replace(/\s*\(demo\)\s*/i, "").trim().split(/\s+/)[0] ?? "";
 
-export function offerMessage(e: WaitlistEntry, start: DateTime, minutes: number): OutboundMessage {
+export function offerMessage(e: WaitlistEntry, start: DateTime, minutes: number, professional?: string): OutboundMessage {
   const name = firstName(e.patientName);
   const when = human(toLocal(start.toISO()!));
   return {
-    text: `🔔 *Se liberó un turno*\n\nHola, ${name}. Usted estaba en lista de espera y se liberó el *${when}* en ${kb().name}.\n🦷 ${e.treatment}\n\n¿Se lo reservo? Lo guardo para usted durante ${minutes} minutos.`,
+    text: `🔔 *Se liberó un turno*\n\nHola, ${name}. Usted estaba en lista de espera y se liberó el *${when}* en ${kb().name}.\n🦷 ${e.treatment}${professional ? `\n👩‍⚕️ ${professional}` : ""}\n\n¿Se lo reservo? Lo guardo para usted durante ${minutes} minutos.`,
     buttons: ["✅ Lo tomo", "No, gracias"],
     template: { name: config.whatsapp.templateWaitlist, params: [name || "¡hola", when] },
   };

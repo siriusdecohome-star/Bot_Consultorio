@@ -22,15 +22,19 @@ export async function loadExampleDocument(store: Store): Promise<string | null> 
 /** Semilla distinta por clínica: datos distintos pero reproducibles. */
 export const demoSeed = (c: ClinicProfile) => (c.primary ? 7 : 11);
 
-/** Crea en el calendario los turnos de ejemplo próximos (los pasados no ocupan agenda). */
-async function calendarEvents(data: DemoData, calendar: CalendarService, now: Date) {
+/**
+ * Crea en Google Calendar los turnos de ejemplo próximos de los profesionales que usan
+ * Google (los pasados no ocupan agenda; los de agenda interna viven solo en la base).
+ */
+async function calendarEvents(data: DemoData, calendar: CalendarService, now: Date, clinic: ClinicProfile) {
   const ids = new Map<string, string>();
+  const google = new Set(clinic.professionals.filter((p) => p.calendar === "google").map((p) => p.id));
   for (const a of data.appointments) {
-    if (!["confirmada", "pendiente"].includes(a.status) || new Date(a.start) < now) continue;
+    if (!["confirmada", "pendiente"].includes(a.status) || new Date(a.start) < now || !a.professionalId || !google.has(a.professionalId)) continue;
     const ev = await calendar.createEvent({
       start: DateTime.fromISO(a.start).toISO()!, end: DateTime.fromISO(a.end).toISO()!,
       summary: `${a.treatment} — ${a.patientName}`, description: `Id de cita: ${a.id}\nTurno de ejemplo (datos ficticios).`,
-    }, { demo: "seed" });
+    }, { demo: "seed", professional: a.professionalId });
     ids.set(a.id, ev.id);
   }
   return ids;
@@ -40,7 +44,7 @@ async function calendarEvents(data: DemoData, calendar: CalendarService, now: Da
 export async function loadDemoMemory(store: Store, calendar: CalendarService, clinic: ClinicProfile, now: Date): Promise<DemoData> {
   return withClinic(clinic, async () => {
     const data = buildDemoData(clinic, now, demoSeed(clinic));
-    const ids = await calendarEvents(data, calendar, now);
+    const ids = await calendarEvents(data, calendar, now, clinic);
     for (const a of data.appointments) a.calendarEventId = ids.get(a.id) ?? "";
     const mem = store as Store & { importDemo?: (d: DemoData) => void };
     if (!mem.importDemo) throw new Error("loadDemoMemory solo funciona con la base en memoria");
@@ -61,7 +65,17 @@ export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarSer
     };
     must(await db.from("patients").delete().eq("clinic_id", clinic.id).like("id", "demo_%"), "borrar ejemplos");
     must(await db.from("turn_metrics").delete().eq("clinic_id", clinic.id).like("conversation_id", "demo_%"), "borrar métricas de ejemplo");
-    const ids = calendar ? await calendarEvents(data, calendar, now) : new Map<string, string>();
+    must(await db.from("professional_exceptions").delete().eq("clinic_id", clinic.id).like("id", "demo_%"), "borrar excepciones de ejemplo");
+    // Profesionales de la clínica (si todavía no están; los editados en el panel no se pisan).
+    const { data: existing } = await db.from("professionals").select("id").eq("clinic_id", clinic.id);
+    const have = new Set((existing ?? []).map((p: any) => p.id));
+    const missing = clinic.professionals.filter((p) => !have.has(p.id));
+    if (missing.length) {
+      must(await db.from("professionals").insert(missing.map((p) => ({
+        id: p.id, clinic_id: clinic.id, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours, treatments: p.treatments, calendar: p.calendar, active: p.active,
+      }))), "profesionales");
+    }
+    const ids = calendar ? await calendarEvents(data, calendar, now, clinic) : new Map<string, string>();
     const c = clinic.id;
     const chunks = <T>(xs: T[], n = 300) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
     for (const part of chunks(data.patients)) {
@@ -79,7 +93,7 @@ export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarSer
     }
     for (const part of chunks(data.appointments)) {
       must(await db.from("appointments").insert(part.map((a) => ({
-        id: a.id, clinic_id: c, patient_id: a.patientId, patient_name: a.patientName, treatment: a.treatment, start_at: a.start, end_at: a.end,
+        id: a.id, clinic_id: c, patient_id: a.patientId, patient_name: a.patientName, treatment: a.treatment, professional_id: a.professionalId, start_at: a.start, end_at: a.end,
         status: a.status, calendar_event_id: ids.get(a.id) ?? "", confirmed_by_patient: a.confirmedByPatient,
         reminder24_sent: a.reminder24Sent, reminder2_sent: a.reminder2Sent, created_at: a.createdAt, cancelled_at: a.cancelledAt ?? null,
       }))), "turnos");
@@ -98,8 +112,14 @@ export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarSer
     if (data.waitlist.length) {
       must(await db.from("waitlist").insert(data.waitlist.map((w) => ({
         id: w.id, clinic_id: c, patient_id: w.patientId, patient_name: w.patientName, treatment: w.treatment, from_date: w.fromDate, to_date: w.toDate,
-        franja: w.franja, status: w.status, created_at: w.createdAt,
+        franja: w.franja, status: w.status, professional_id: w.professionalId, created_at: w.createdAt,
       }))), "lista de espera");
+    }
+    if (data.exceptions.length) {
+      must(await db.from("professional_exceptions").insert(data.exceptions.map((e) => ({
+        id: e.id, clinic_id: c, professional_id: e.professionalId, kind: e.kind, from_date: e.fromDate, to_date: e.toDate,
+        from_time: e.fromTime, to_time: e.toTime, reason: e.reason, created_by: e.createdBy, notified_at: e.notifiedAt, created_at: e.createdAt,
+      }))), "excepciones");
     }
     return data;
   });

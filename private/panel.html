@@ -29,6 +29,7 @@
     <button data-view="bandeja" class="on">Bandeja <span class="badge zero" id="tab-waiting" title="Esperan respuesta">0</span></button>
     <button data-view="resumen">Resumen</button>
     <button data-view="agenda">Agenda</button>
+    <button data-view="profesionales">Profesionales</button>
     <button data-view="pacientes">Pacientes</button>
     <button data-view="estadisticas">Estadísticas</button>
     <button data-view="costos" data-admin>Costos</button>
@@ -138,6 +139,7 @@
         </div>
       </div>
       <div class="filters card slim">
+        <label class="field-inline">Profesional <select id="ag-prof"><option value="">Todos</option></select></label>
         <label class="field-inline">Tratamiento <select id="ag-treatment"><option value="">Todos</option></select></label>
         <label class="field-inline">Estado <select id="ag-status">
           <option value="">Todos</option><option value="confirmada">Confirmada</option><option value="pendiente">Pendiente</option>
@@ -147,11 +149,44 @@
         <span class="hint" id="ag-count"></span>
         <button class="btn ghost small push-right" type="button" data-export="turnos" title="Descargar en CSV (se abre en Excel)">⬇ Turnos CSV</button>
       </div>
+      <div class="legend" id="ag-legend"></div>
       <div class="cal" id="cal"><p class="loading pad">Cargando agenda…</p></div>
       <section class="card">
         <div class="card-head"><h2>Lista de espera</h2><span class="actions"><span class="hint" id="wl-hint"></span><button class="btn ghost small" type="button" data-export="lista-espera" title="Descargar en CSV (se abre en Excel)">⬇ CSV</button></span></div>
         <div class="table-wrap"><table class="tbl" id="waitlist"></table></div>
       </section>
+    </section>
+
+    <!-- ================= Profesionales ================= -->
+    <section class="view" data-view="profesionales" hidden>
+      <div class="view-head">
+        <h2>Profesionales</h2>
+        <div class="actions"><span class="hint" id="pr-mode"></span><button class="btn small" type="button" id="pr-add" hidden>+ Agregar profesional</button></div>
+      </div>
+      <div class="pros" id="pros"><p class="loading">Cargando…</p></div>
+      <p class="note-box small">📅 <b>Calendarios:</b> en esta demo un profesional usa un Google Calendar real y el resto, la agenda interna del sistema. En producción cada profesional conecta su propio calendario y el sistema lee solo ocupado/libre.</p>
+      <div class="grid">
+        <section class="card">
+          <div class="card-head"><h2>Excepciones de agenda</h2><span class="hint">Ausencias, franjas y vacaciones</span></div>
+          <div class="table-wrap"><table class="tbl" id="exc-list"></table></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Cargar una excepción</h2></div>
+          <form class="kb exc-form" id="exc-form">
+            <label>Profesional <select name="professionalId" required></select></label>
+            <div class="seg" id="exc-kind" role="group" aria-label="Tipo"><button type="button" data-f="dia" class="on">Día completo</button><button type="button" data-f="franja">Franja</button><button type="button" data-f="rango">Vacaciones</button></div>
+            <div class="two">
+              <label><span data-label-from>Fecha</span> <input type="date" name="fromDate" required /></label>
+              <label data-only="rango" hidden>Hasta <input type="date" name="toDate" /></label>
+              <label data-only="franja" hidden>Desde <input type="time" name="fromTime" step="900" /></label>
+              <label data-only="franja" hidden>Hasta <input type="time" name="toTime" step="900" /></label>
+            </div>
+            <label>Motivo <input name="reason" maxlength="120" placeholder="Ej.: congreso, trámite personal, vacaciones" required /></label>
+            <div class="profile-save"><button class="btn" type="submit">Cargar excepción</button></div>
+          </form>
+          <div id="exc-result"></div>
+        </section>
+      </div>
     </section>
 
     <!-- ================= Pacientes ================= -->
@@ -226,7 +261,7 @@
                 <label>Medios de pago <input name="payments" required /></label>
               </div>
               <label>Coberturas / seguros <textarea name="insurance" rows="2" required></textarea></label>
-              <label>Profesionales (uno por línea) <textarea name="professionals" rows="2"></textarea></label>
+              <p class="hint">Los profesionales, sus horarios y tratamientos se editan en la pestaña <b>Profesionales</b>.</p>
             </fieldset>
             <fieldset><legend>Horarios de atención</legend>
               <p class="hint">Estos horarios limitan los turnos que ofrece el asistente, no solo el texto.</p>

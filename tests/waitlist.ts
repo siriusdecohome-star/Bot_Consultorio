@@ -141,10 +141,10 @@ await check("No se ofrece un horario fuera del rango o la franja de la persona",
 await check("Reactivación: invita una sola vez a quien no viene hace 6 meses o más", async () => {
   const p = await A.store.getOrCreatePatient("web:ines", "web");
   await A.store.updatePatient(p.id, { name: "Inés Molina" });
-  await A.store.createAppointment({ patientId: p.id, patientName: "Inés Molina", treatment: "Limpieza dental", start: "2026-04-10T13:00:00Z", end: "2026-04-10T13:30:00Z", status: "asistio", calendarEventId: "", confirmedByPatient: true, reminder24Sent: true, reminder2Sent: true });
+  await A.store.createAppointment({ patientId: p.id, patientName: "Inés Molina", treatment: "Limpieza dental", professionalId: "prof-mendez", start: "2026-04-10T13:00:00Z", end: "2026-04-10T13:30:00Z", status: "asistio", calendarEventId: "", confirmedByPatient: true, reminder24Sent: true, reminder2Sent: true });
   const q = await A.store.getOrCreatePatient("web:juan", "web");
-  await A.store.createAppointment({ patientId: q.id, patientName: "Juan (demo)", treatment: "Consulta", start: "2026-03-01T13:00:00Z", end: "2026-03-01T13:30:00Z", status: "asistio", calendarEventId: "", confirmedByPatient: true, reminder24Sent: true, reminder2Sent: true });
-  await A.store.createAppointment({ patientId: q.id, patientName: "Juan (demo)", treatment: "Consulta", start: "2026-12-10T13:00:00Z", end: "2026-12-10T13:30:00Z", status: "confirmada", calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false });
+  await A.store.createAppointment({ patientId: q.id, patientName: "Juan (demo)", treatment: "Consulta", professionalId: "prof-mendez", start: "2026-03-01T13:00:00Z", end: "2026-03-01T13:30:00Z", status: "asistio", calendarEventId: "", confirmedByPatient: true, reminder24Sent: true, reminder2Sent: true });
+  await A.store.createAppointment({ patientId: q.id, patientName: "Juan (demo)", treatment: "Consulta", professionalId: "prof-mendez", start: "2026-12-10T13:00:00Z", end: "2026-12-10T13:30:00Z", status: "confirmada", calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false });
   const cands = await A.reminders.reactivationCandidates();
   assert.ok(cands.some((c) => c.patient.id === p.id && c.monthsAgo >= 7));
   assert.ok(!cands.some((c) => c.patient.id === q.id), "quien ya tiene un turno próximo no se invita");

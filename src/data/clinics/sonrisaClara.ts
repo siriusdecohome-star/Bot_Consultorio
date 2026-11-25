@@ -9,8 +9,9 @@ export const sonrisaClara: ClinicKnowledge = {
   phone: "+54 11 0000-0000",
   email: "turnos@sonrisaclara.demo",
   professionals: [
-    "Dra. Laura Méndez — odontología general y estética",
-    "Dr. Martín Ríos — ortodoncia (atiende los martes y jueves)",
+    "Dra. Laura Méndez — odontología general",
+    "Dr. Martín Ríos — ortodoncia (martes y jueves)",
+    "Dra. Sofía Paredes — estética dental (lunes, miércoles y viernes por la tarde)",
   ],
   hours: [
     { weekday: 1, blocks: [["09:00", "13:00"], ["14:00", "18:00"]] },
@@ -22,13 +23,13 @@ export const sonrisaClara: ClinicKnowledge = {
   ],
   hoursText: "Lunes a viernes de 9:00 a 13:00 y de 14:00 a 18:00. Sábados de 9:00 a 13:00. Domingos y feriados, cerrado.",
   treatments: [
-    { name: "Consulta y diagnóstico", price: "USD 25", duration: "30 min", notes: "Incluye revisión general y plan de tratamiento." },
-    { name: "Limpieza dental (profilaxis)", price: "USD 40", duration: "30 min", notes: "Recomendada cada 6 meses." },
-    { name: "Blanqueamiento en consultorio", price: "USD 180", duration: "60 min (se agenda en dos turnos seguidos)", notes: "Requiere consulta previa." },
-    { name: "Arreglo de caries (resina)", price: "desde USD 50 por pieza", duration: "30 min", notes: "El valor final depende de la pieza." },
-    { name: "Extracción simple", price: "USD 60", duration: "30 min", notes: "Las extracciones complejas se evalúan en consulta." },
-    { name: "Consulta de ortodoncia", price: "USD 30", duration: "30 min", notes: "Con el Dr. Ríos, martes y jueves." },
-    { name: "Evaluación para implantes", price: "sin cargo", duration: "30 min", notes: "El presupuesto se entrega en la evaluación." },
+    { id: "consulta", specialty: "Odontología general", name: "Consulta y diagnóstico", price: "USD 25", duration: "30 min", notes: "Incluye revisión general y plan de tratamiento." },
+    { id: "limpieza", specialty: "Odontología general", name: "Limpieza dental (profilaxis)", price: "USD 40", duration: "30 min", notes: "Recomendada cada 6 meses." },
+    { id: "blanqueamiento", specialty: "Estética dental", name: "Blanqueamiento en consultorio", price: "USD 180", duration: "60 min", notes: "Con la Dra. Paredes. Requiere consulta previa." },
+    { id: "caries", specialty: "Odontología general", name: "Arreglo de caries (resina)", price: "desde USD 50 por pieza", duration: "30 min", notes: "El valor final depende de la pieza." },
+    { id: "extraccion", specialty: "Odontología general", name: "Extracción simple", price: "USD 60", duration: "30 min", notes: "Las extracciones complejas se evalúan en consulta." },
+    { id: "ortodoncia", specialty: "Ortodoncia", name: "Consulta de ortodoncia", price: "USD 30", duration: "30 min", notes: "Con el Dr. Ríos, martes y jueves." },
+    { id: "implantes", specialty: "Odontología general", name: "Evaluación para implantes", price: "sin cargo", duration: "30 min", notes: "El presupuesto se entrega en la evaluación." },
   ],
   promo: {
     name: "Promo Sonrisa Noviembre",

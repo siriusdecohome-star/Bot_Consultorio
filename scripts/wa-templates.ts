@@ -1,9 +1,10 @@
 /**
  * Crea en Meta las plantillas que usa el bot cuando la ventana de 24 h está cerrada:
- * recordatorio, seguimiento de la promo, turno liberado (lista de espera) y reactivación.
+ * recordatorio, seguimiento de la promo, turno liberado (lista de espera), reactivación
+ * y aviso de reprogramación (cuando un profesional no va a atender).
  * Meta las revisa (suele tardar de minutos a horas).
  * Uso: npm run wa:templates                       → crea las que falten
- *      npm run wa:templates -- --status            → estado de revisión de las cuatro
+ *      npm run wa:templates -- --status            → estado de revisión de todas
  * Requiere WHATSAPP_TOKEN y WHATSAPP_WABA_ID en el .env.
  *
  * Si la ventana de 24 h está abierta (el paciente escribió hace menos de 24 h),
@@ -11,8 +12,8 @@
  */
 import { config } from "../src/config.js";
 
-const { token, graphVersion, templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateLang } = config.whatsapp;
-const ALL = [templateReminder, templateFollowup, templateWaitlist, templateReactivation];
+const { token, graphVersion, templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateReschedule, templateLang } = config.whatsapp;
+const ALL = [templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateReschedule];
 const waba = (process.env.WHATSAPP_WABA_ID ?? "").trim();
 if (!token || !waba) {
   console.log("Faltan WHATSAPP_TOKEN o WHATSAPP_WABA_ID en el .env");
@@ -107,6 +108,25 @@ const templates = [
         buttons: [
           { type: "QUICK_REPLY", text: "Sí, buscar turno" },
           { type: "QUICK_REPLY", text: "Más adelante" },
+        ],
+      },
+    ],
+  },
+  {
+    name: templateReschedule,
+    language: templateLang,
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola, {{1}}. Le escribimos de Clínica Dental Sonrisa Clara: {{3}} no podrá atender en el horario de su turno ({{2}}). ¿Quiere que lo reprogramemos?",
+        example: { body_text: [["Ana", "viernes 27/11 a las 10:00", "la Dra. Laura Méndez"]] },
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Reprogramar" },
+          { type: "QUICK_REPLY", text: "Cancelar turno" },
         ],
       },
     ],

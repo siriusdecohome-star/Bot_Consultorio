@@ -12,11 +12,20 @@ import { emptyUsage, type LlmProvider, type ToolCallLog, type TurnInput, type Tu
  */
 
 interface Memory {
-  step: "idle" | "elige_horario" | "pide_nombre" | "confirma" | "elige_cita_cancelar" | "pide_nombre_espera";
+  step: "idle" | "elige_horario" | "pide_nombre" | "confirma" | "elige_cita_cancelar" | "pide_nombre_espera" | "elige_especialidad" | "elige_profesional";
   /** Último rango buscado: se usa para anotar en la lista de espera. */
   lastRange?: { from: string; to: string; franja: string };
-  slots: Array<{ inicio: string; cuando: string }>;
+  slots: Array<{ inicio: string; cuando: string; profesional_id?: string; profesional?: string }>;
   chosen?: string;
+  /** Profesional del horario elegido. */
+  chosenProf?: string;
+  specialty?: string;
+  /** Profesional pedido por el paciente, o "cualquiera". */
+  profId?: string;
+  specialtyOptions?: string[];
+  profOptions?: Array<{ id: string; nombre: string }>;
+  /** Tratamientos de cada profesional (para reservar si el paciente eligió solo la especialidad). */
+  profTreatments?: Record<string, string[]>;
   treatment?: string;
   name?: string;
   rescheduleId?: string;
@@ -102,12 +111,19 @@ export class MockProvider implements LlmProvider {
       const r = await call("guardar_nombre_paciente", { nombre_completo: name });
       return r?.ok ? String(r.nombre) : name;
     };
+    // Turno al que se refiere un aviso (recordatorio o pedido de reprogramación).
+    const pendingId = input.turnContext.match(/turno id (\S+)/)?.[1];
     const knownName = input.turnContext.match(/Nombre registrado: (.+)\./)?.[1];
     if (knownName && knownName !== "desconocido") mem.name ??= knownName;
 
+    // Qué se busca: tratamiento (o especialidad) y profesional elegido (o el primero disponible).
+    const searchFor = () => ({
+      ...(mem.treatment ? { tratamiento: mem.treatment } : mem.specialty ? { especialidad: mem.specialty } : { tratamiento: defaultTreatment() }),
+      profesional_id: mem.profId ?? "cualquiera",
+    });
     const offer = async (from: DateTime, to: DateTime, fr: string, intro: string) => {
       const r = await call("buscar_horarios_disponibles", {
-        fecha_desde: from.toISODate(), fecha_hasta: to.toISODate(), franja: fr,
+        fecha_desde: from.toISODate(), fecha_hasta: to.toISODate(), franja: fr, ...searchFor(),
       });
       mem.slots = r.horarios.slice(0, 4);
       mem.lastRange = { from: from.toISODate()!, to: to.toISODate()!, franja: fr };
@@ -119,15 +135,29 @@ export class MockProvider implements LlmProvider {
       return `${intro.replace("{dia}", dayHeader(mem.slots))}\n\n${slotList(mem.slots)}\n\n¿Cuál le queda mejor? Respóndame con el número.`;
     };
 
+    /** Si para lo que necesita atiende más de un profesional, pregunta con quién; si no, ofrece horarios. */
+    const askDoctorOrOffer = async (fr = "cualquiera") => {
+      const r = await call("listar_profesionales", mem.treatment ? { tratamiento: mem.treatment } : { especialidad: mem.specialty });
+      mem.profTreatments = Object.fromEntries(r.profesionales.map((p: any) => [p.id, p.tratamientos]));
+      if (r.profesionales.length > 1) {
+        mem.profOptions = r.profesionales.map((p: any) => ({ id: p.id, nombre: p.nombre }));
+        mem.step = "elige_profesional";
+        return `¿Con quién prefiere atenderse?\n\n${numbered([...r.profesionales.map((p: any) => `${p.nombre} (${p.atiende.split(",").length > 4 ? "todos los días" : p.atiende.replace(/ \d\d:\d\d-\d\d:\d\d( y \d\d:\d\d-\d\d:\d\d)?/g, "")})`), "El primero disponible"])}`;
+      }
+      mem.profId = r.profesionales[0]?.id ?? "cualquiera";
+      return offer(now, now.plus({ days: 3 }), fr, `¡Con gusto! 📅 {dia} tengo estos horarios libres${r.profesionales[0] ? ` con ${r.profesionales[0].nombre}` : ""}:`);
+    };
+
     /**
      * El paciente pidió una fecha y hora exactas: se consulta la agenda de ese día.
      * Devuelve null si está libre, o el mensaje con alternativas si no.
      */
     const checkExact = async (key: string): Promise<string | null> => {
       const date = key.slice(0, 10);
-      const r = await call("buscar_horarios_disponibles", { fecha_desde: date, fecha_hasta: date, franja: "cualquiera" });
-      const free: Array<{ inicio: string }> = r.horarios;
-      if (free.some((s) => s.inicio === key)) return null;
+      const r = await call("buscar_horarios_disponibles", { fecha_desde: date, fecha_hasta: date, franja: "cualquiera", ...searchFor() });
+      const free: Array<{ inicio: string; profesional_id?: string }> = r.horarios;
+      const hit = free.find((s) => s.inicio === key);
+      if (hit) { mem.chosenProf = hit.profesional_id; return null; }
       const d = DateTime.fromISO(key, { zone: TZ() }).setLocale("es");
       const head = free.length
         ? `Las *${d.toFormat("HH:mm")}* del ${d.toFormat("cccc dd/MM")} no están disponibles.`
@@ -158,7 +188,7 @@ export class MockProvider implements LlmProvider {
       if (has(t, "cancel", "no voy a poder", "no puedo ir")) {
         const r = await call("ver_citas_paciente", {});
         if (!r.citas.length) return "No encuentro turnos activos a su nombre. ¿Quiere que le busque uno?";
-        const c = r.citas[0];
+        const c = r.citas.find((x: any) => x.id === pendingId) ?? r.citas[0];
         const x = await call("cancelar_cita", { cita_id: c.id, motivo: "aviso del paciente" });
         if (!x.ok) return "No pude cancelar ese turno. Si quiere, le comunico con una persona del equipo.";
         mem.treatment = c.tratamiento;
@@ -169,10 +199,12 @@ export class MockProvider implements LlmProvider {
       if (has(t, "cambiar", "reprogram", "mover", "otro horario", "otro dia") && mem.step !== "elige_horario") {
         const r = await call("ver_citas_paciente", {});
         if (r.citas.length) {
-          mem.rescheduleId = r.citas[0].id;
+          const cita = r.citas.find((x: any) => x.id === pendingId) ?? r.citas[0];
+          mem.rescheduleId = cita.id;
+          mem.treatment = cita.tratamiento;
           const pref = parseDay(t, now);
           return offer(pref?.[0] ?? now, pref?.[1] ?? now.plus({ days: 4 }), franja(t),
-            `¡Claro! Su turno actual es el *${r.citas[0].cuando}*. {dia} tengo libres:`);
+            `¡Claro! Su turno actual es el *${cita.cuando}*. {dia} tengo libres:`);
         }
       }
 
@@ -217,6 +249,7 @@ export class MockProvider implements LlmProvider {
         if (!pick && pref) return offer(pref[0], pref[1], franja(t), "Perfecto. {dia} tengo:");
         if (!pick) return "Disculpe, no identifiqué el horario. ¿Me responde con el número de la opción? (1, 2, 3 o 4)";
         mem.chosen = pick.inicio;
+        if (pick.profesional_id) mem.chosenProf = pick.profesional_id;
         if (mem.rescheduleId) {
           const r = await call("reprogramar_cita", { cita_id: mem.rescheduleId, nuevo_inicio: pick.inicio });
           if (!r.ok) return this.slotError(r, mem);
@@ -231,11 +264,42 @@ export class MockProvider implements LlmProvider {
         return this.book(call, mem);
       }
 
+      // 2b) Especialidad y profesional (antes de buscar horarios)
+      if (mem.step === "elige_especialidad" && mem.specialtyOptions) {
+        const n = t.match(/\b(\d)\b/);
+        const sp = n ? mem.specialtyOptions[+n[1]! - 1] : mem.specialtyOptions.find((s) => t.includes(norm(s).split(" ")[0]!) || norm(s).includes(t));
+        if (!sp) return `Disculpe, ¿me responde con el número de la especialidad?\n\n${numbered(mem.specialtyOptions)}`;
+        mem.specialty = sp;
+        mem.treatment = undefined;
+        return askDoctorOrOffer();
+      }
+      if (mem.step === "elige_profesional" && mem.profOptions) {
+        const n = t.match(/\b(\d)\b/);
+        const idx = n ? +n[1]! - 1 : mem.profOptions.findIndex((p) => norm(p.nombre).split(" ").some((w) => w.length > 3 && t.includes(w)));
+        if (has(t, "primero", "cualquiera", "el que")) mem.profId = "cualquiera";
+        else if (idx >= 0 && idx < mem.profOptions.length) mem.profId = mem.profOptions[idx]!.id;
+        else if (idx === mem.profOptions.length) mem.profId = "cualquiera";
+        else return `Disculpe, ¿con quién prefiere?\n\n${numbered([...mem.profOptions.map((p) => p.nombre), "El primero disponible"])}`;
+        const who = mem.profId === "cualquiera" ? "el primero disponible" : mem.profOptions.find((p) => p.id === mem.profId)!.nombre;
+        return offer(now, now.plus({ days: 4 }), "cualquiera", `Perfecto, con ${who}. 📅 {dia} tengo estos horarios libres:`);
+      }
+
       // 3) Intención de agendar
       const day = parseDay(t, now);
       if (has(t, "turno", "cita", "agendar", "reservar", "sacar", "quiero ir", "disponib", "lugar") || (day && mem.step === "idle" && has(t, "puedo", "tiene", "hay"))) {
-        mem.treatment = treatmentOf(t) ?? mem.treatment ?? "Consulta y diagnóstico";
+        mem.treatment = treatmentOf(t) ?? mem.treatment;
         const time = timeIn(t);
+        // Sin tratamiento ni fecha: primero la especialidad (si hay más de una), después el profesional.
+        if (!mem.treatment && !mem.specialty && !day && !time) {
+          const r = await call("listar_profesionales", {});
+          if (r.especialidades.length > 1) {
+            mem.specialtyOptions = r.especialidades;
+            mem.step = "elige_especialidad";
+            return `¡Con gusto! 📅 ¿Para qué especialidad necesita el turno?\n\n${numbered(r.especialidades)}\n\nRespóndame con el número.`;
+          }
+        }
+        if (!mem.specialty) mem.treatment ??= defaultTreatment();
+        if (!day && !time && !mem.profId) return askDoctorOrOffer(franja(t));
         if (day && time) {
           // Pidió día y hora exactos: si está libre se toma directamente; si no, se explican las alternativas.
           const key = `${day[0].toISODate()}T${time}`;
@@ -311,7 +375,7 @@ export class MockProvider implements LlmProvider {
   }
 
   private slotError(r: any, mem: Memory): string {
-    mem.slots = (r.alternativas ?? []).slice(0, 4).map((s: string) => ({ inicio: s, cuando: humanKey(s) }));
+    mem.slots = (r.alternativas ?? []).slice(0, 4).map((s: any) => (typeof s === "string" ? { inicio: s, cuando: humanKey(s) } : { ...s, cuando: humanKey(s.inicio) }));
     mem.step = mem.slots.length ? "elige_horario" : "idle";
     const head = r.mensaje ?? "Ese horario no está disponible.";
     if (!mem.slots.length) return `${head} ¿Le busco otro día?`;
@@ -319,14 +383,25 @@ export class MockProvider implements LlmProvider {
   }
 
   private async book(call: (n: string, a: Record<string, unknown>) => Promise<any>, mem: Memory): Promise<string> {
-    const r = await call("crear_cita", { nombre_completo: mem.name, tratamiento: mem.treatment ?? "Consulta y diagnóstico", inicio: mem.chosen });
+    // Si eligió solo la especialidad, el tratamiento es el primero que hace ese profesional en esa especialidad.
+    const prof = mem.chosenProf ?? (mem.profId !== "cualquiera" ? mem.profId : undefined);
+    const ofProf = prof ? mem.profTreatments?.[prof] ?? [] : [];
+    const inSpecialty = ofProf.filter((n) => kb().treatments.some((t) => t.name === n && norm(t.specialty ?? "") === norm(mem.specialty ?? "")));
+    const r = await call("crear_cita", {
+      nombre_completo: mem.name, tratamiento: mem.treatment ?? inSpecialty[0] ?? ofProf[0] ?? treatmentForSpecialty(mem.specialty) ?? defaultTreatment(), inicio: mem.chosen,
+      ...(mem.chosenProf ? { profesional_id: mem.chosenProf } : mem.profId && mem.profId !== "cualquiera" ? { profesional_id: mem.profId } : {}),
+    });
     if (!r.ok) return this.slotError(r, mem);
     mem.step = "idle";
+    mem.profId = undefined;
+    mem.chosenProf = undefined;
+    mem.specialty = undefined;
     return [
       `¡Listo, ${mem.name!.split(" ")[0]}! ✅ Su turno quedó confirmado:`,
       "",
       `📅 *${cap(r.cita.cuando)}*`,
       `🦷 ${r.cita.tratamiento}`,
+      ...(r.cita.profesional ? [`👩‍⚕️ ${r.cita.profesional}`] : []),
       `📍 ${kb().address.replace(" (dirección ficticia)", "")}`,
       "",
       "Le enviaré un recordatorio el día anterior. Si necesita cambiarlo, escríbame cuando quiera.",
@@ -346,12 +421,22 @@ function dayHeader(slots: Array<{ inicio: string }>): string {
   return `Para el *${d.toFormat("cccc dd/MM")}*`;
 }
 
-/** Lista con 1️⃣ 2️⃣…: solo horas si es un único día; día + hora si son varios. */
-function slotList(slots: Array<{ inicio: string }>): string {
+/** Lista con 1️⃣ 2️⃣…: solo horas si es un único día; día + hora si son varios; el profesional si hay más de uno. */
+function slotList(slots: Array<{ inicio: string; profesional?: string }>): string {
   const sameDay = new Set(slots.map((s) => s.inicio.slice(0, 10))).size === 1;
+  const manyProfs = new Set(slots.map((s) => s.profesional).filter(Boolean)).size > 1;
   return slots.map((s, i) => {
     const d = DateTime.fromISO(s.inicio, { zone: TZ() }).setLocale("es");
-    return `${KEYCAPS[i]} ${sameDay ? d.toFormat("HH:mm") : cap(d.toFormat("ccc dd/MM · HH:mm"))}`;
+    return `${KEYCAPS[i]} ${sameDay ? d.toFormat("HH:mm") : cap(d.toFormat("ccc dd/MM · HH:mm"))}${manyProfs && s.profesional ? ` · ${s.profesional}` : ""}`;
   }).join("\n");
 }
+
+const numbered = (xs: string[]) => xs.map((x, i) => `${KEYCAPS[i] ?? `${i + 1}.`} ${x}`).join("\n");
+/** Tratamiento «de consulta» de una especialidad (para reservar si el paciente no dijo uno). */
+function treatmentForSpecialty(sp?: string): string | undefined {
+  if (!sp) return undefined;
+  const list = kb().treatments.filter((t) => norm(t.specialty ?? "") === norm(sp));
+  return (list.find((t) => /consulta/i.test(t.name)) ?? list[0])?.name;
+}
+const defaultTreatment = () => (kb().treatments.find((t) => /general/i.test(t.specialty ?? "") && /consulta/i.test(t.name)) ?? kb().treatments[0]!).name;
 const humanKey = (k: string) => DateTime.fromISO(k, { zone: TZ() }).setLocale("es").toFormat("cccc dd/MM 'a las' HH:mm");

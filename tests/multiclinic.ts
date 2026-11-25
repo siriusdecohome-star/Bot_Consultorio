@@ -52,10 +52,10 @@ await check("El mismo teléfono en las dos clínicas son dos pacientes distintos
   assert.equal(await B.store.getPatient(pa.id), null, "B no debe leer el paciente de A");
 });
 
-await check("La misma hora se reserva en las dos clínicas; dos veces en la misma, no", async () => {
+await check("La misma hora se reserva en las dos clínicas; dos veces con el mismo profesional, no", async () => {
   const pa = await A.store.getOrCreatePatient("+59170000002", "web");
   const pb = await B.store.getOrCreatePatient("+59170000002", "web");
-  const base = { patientName: "Paciente (demo)", treatment: "Consulta", start: at("2026-11-25T11:00"), end: at("2026-11-25T11:30"),
+  const base = { patientName: "Paciente Prueba", treatment: "Consulta", professionalId: "prof-x", start: at("2026-11-25T11:00"), end: at("2026-11-25T11:30"),
     status: "confirmada" as const, calendarEventId: "", confirmedByPatient: false, reminder24Sent: false, reminder2Sent: false };
   await A.store.createAppointment({ ...base, patientId: pa.id });
   await B.store.createAppointment({ ...base, patientId: pb.id });
@@ -64,7 +64,7 @@ await check("La misma hora se reserva en las dos clínicas; dos veces en la mism
   assert.equal((await B.store.listAppointments()).length, 1);
 });
 
-await check("Agenda compartida: cada clínica ve sus eventos; la principal, también los sin etiqueta", async () => {
+await check("Calendario de Google: cada clínica ve sus eventos; la principal, también los sin etiqueta", async () => {
   const day = DateTime.fromISO("2026-11-26T00:00", { zone: "America/La_Paz" });
   await services.calendar.createEvent({ start: day.set({ hour: 9 }).toISO()!, end: day.set({ hour: 9, minute: 30 }).toISO()!, summary: "Cargado a mano" });
   const eb = await withClinic(B.profile, () => B.calendar.createEvent({ start: day.set({ hour: 15 }).toISO()!, end: day.set({ hour: 15, minute: 30 }).toISO()!, summary: "Turno B" }));
@@ -76,11 +76,11 @@ await check("Agenda compartida: cada clínica ve sus eventos; la principal, tamb
 });
 
 await check("Disponibilidad con el horario de cada clínica (B abre 8:30 y cierra los sábados)", async () => {
-  const slotsB = await withClinic(B.profile, () => new Availability(B.calendar, clock).freeSlots("2026-11-24", "2026-11-24", "manana", 2));
-  assert.equal(slotsB[0], "2026-11-24T08:30");
-  const satB = await withClinic(B.profile, () => new Availability(B.calendar, clock).freeSlots("2026-11-28", "2026-11-28", "cualquiera"));
+  const slotsB = await withClinic(B.profile, () => new Availability(B.calendar, clock, B.store).freeSlots({ fromDate: "2026-11-24", toDate: "2026-11-24", franja: "manana", limit: 2 }));
+  assert.equal(slotsB[0]?.inicio, "2026-11-24T08:30");
+  const satB = await withClinic(B.profile, () => new Availability(B.calendar, clock, B.store).freeSlots({ fromDate: "2026-11-28", toDate: "2026-11-28", franja: "cualquiera" }));
   assert.equal(satB.length, 0);
-  const satA = await withClinic(A.profile, () => new Availability(A.calendar, clock).freeSlots("2026-11-28", "2026-11-28", "cualquiera"));
+  const satA = await withClinic(A.profile, () => new Availability(A.calendar, clock, A.store).freeSlots({ fromDate: "2026-11-28", toDate: "2026-11-28", franja: "cualquiera" }));
   assert.ok(satA.length > 0, "A atiende los sábados");
 });
 

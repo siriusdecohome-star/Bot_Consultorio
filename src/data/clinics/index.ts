@@ -2,6 +2,7 @@ import { config } from "../../config.js";
 import type { ClinicProfile } from "../../clinics/types.js";
 import { altamira } from "./altamira.js";
 import { sonrisaClara } from "./sonrisaClara.js";
+import { altamiraProfessionals, sonrisaProfessionals } from "./professionals.js";
 
 export const CLINIC_A = "sonrisa-clara";
 export const CLINIC_B = "altamira";
@@ -23,6 +24,7 @@ export function demoClinics(): ClinicProfile[] {
       primary: true,
       calendarColor: "10", // verde
       knowledge: structuredClone(sonrisaClara),
+      professionals: structuredClone(sonrisaProfessionals),
     },
     {
       id: CLINIC_B,
@@ -34,6 +36,7 @@ export function demoClinics(): ClinicProfile[] {
       primary: false,
       calendarColor: "9", // azul
       knowledge: structuredClone(altamira),
+      professionals: structuredClone(altamiraProfessionals),
     },
   ];
 }

@@ -20,14 +20,15 @@
     "wa:templates": "tsx scripts/wa-templates.ts",
     "test:reminders": "tsx tests/reminders.ts",
     "test:cases": "tsx tests/scenarios.ts",
-    "test": "npm run typecheck && npm run smoke && npm run test:whatsapp && npm run test:reminders && npm run test:clinics && npm run test:panel && npm run test:waitlist && npm run test:inbox && npm run test:cases",
+    "test": "npm run typecheck && npm run smoke && npm run test:whatsapp && npm run test:reminders && npm run test:clinics && npm run test:panel && npm run test:waitlist && npm run test:inbox && npm run test:doctors && npm run test:cases",
     "seed:users": "tsx scripts/seed-users.ts",
     "test:clinics": "tsx tests/multiclinic.ts",
     "test:panel": "tsx tests/panel.ts",
     "test:waitlist": "tsx tests/waitlist.ts",
     "dev:test": "tsx scripts/dev-test.ts",
     "capturas": "tsx scripts/screenshots.ts",
-    "test:inbox": "tsx tests/inbox.ts"
+    "test:inbox": "tsx tests/inbox.ts",
+    "test:doctors": "tsx tests/doctors.ts"
   },
   "keywords": [],
   "author": "",

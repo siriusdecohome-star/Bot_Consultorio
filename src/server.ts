@@ -307,24 +307,30 @@ app.get("/api/agenda", clinicRoute(async (rt, req, res) => {
       rt.calendar.listEvents(start, end),
       rt.store.listAppointments({ from: start.toUTC().toISO()!, to: end.toUTC().toISO()!, status: ["confirmada", "pendiente"] }),
     ]);
-    const byEvent = new Map(appts.map((a) => [a.calendarEventId, a]));
+    // Turnos de todos los profesionales (agenda interna y Google) + eventos de Google cargados a mano.
+    const linked = new Set(appts.map((a) => a.calendarEventId).filter(Boolean));
+    const profName = (id: string | null) => rt.profile.professionals.find((p) => p.id === id)?.name ?? null;
     res.json({
       from: start.toISODate(),
       today: toLocal(systemClock()).toISODate(),
       now: localKey(toLocal(systemClock())),
       hours: rt.profile.knowledge.hours,
-      events: events.map((e) => {
-        const a = byEvent.get(e.id);
-        return {
-          id: e.id,
-          start: localKey(DateTime.fromISO(e.start)),
-          end: localKey(DateTime.fromISO(e.end)),
-          // "bot" = reservado desde el chat; "ocupado" = cualquier otro evento (ejemplos, agenda manual)
-          kind: a && !a.id.startsWith("demo_") ? "bot" : "ocupado",
-          title: a ? `${a.treatment}` : "Ocupado",
-          patient: a && !a.id.startsWith("demo_") ? a.patientName : null,
-        };
-      }),
+      events: [
+        ...appts.map((a) => ({
+          id: a.id,
+          start: localKey(toLocal(a.start)),
+          end: localKey(toLocal(a.end)),
+          // "bot" = reservado desde el chat; "ocupado" = cualquier otro turno (ejemplos, agenda manual)
+          kind: a.id.startsWith("demo_") ? "ocupado" : "bot",
+          title: a.treatment,
+          patient: a.id.startsWith("demo_") ? null : a.patientName,
+          professional: profName(a.professionalId),
+        })),
+        ...events.filter((e) => !linked.has(e.id)).map((e) => ({
+          id: e.id, start: localKey(DateTime.fromISO(e.start)), end: localKey(DateTime.fromISO(e.end)),
+          kind: "ocupado", title: "Ocupado", patient: null, professional: profName(e.tags?.professional ?? rt.profile.professionals.find((p) => p.calendar === "google")?.id ?? null),
+        })),
+      ],
     });
   } catch (err) {
     console.error("[/api/agenda]", err);

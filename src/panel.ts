@@ -15,6 +15,9 @@ import {
 } from "./bot/conversationState.js";
 import { renamePatient } from "./bot/tools.js";
 import { validateMenu } from "./bot/menu.js";
+import { affectedAppointments, notifyAffected, validateException } from "./bot/exceptions.js";
+import { professionalById, treatmentIdOf } from "./services/availability.js";
+import type { Professional } from "./clinics/types.js";
 import { docKind, MAX_DOC_BYTES, toChunks } from "./documents.js";
 import { toCsv, type Cell } from "./csv.js";
 import { localKey, toLocal, TZ, type Clock } from "./services/time.js";
@@ -430,6 +433,8 @@ export function createPanelRouter(opts: PanelOptions): Router {
       hours: k.hours,
       slotMinutes: req.runtime!.profile.slotMinutes,
       treatments: k.treatments.map((t) => t.name),
+      professionals: req.runtime!.profile.professionals.map((p) => ({ id: p.id, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours, active: p.active, calendar: p.calendar })),
+      exceptions: (await store.listExceptions()).filter((e) => e.toDate >= start.toISODate()! && e.fromDate <= end.toISODate()!),
       appointments: appts.filter((a) => a.status !== "reprogramada").map((a) => {
         const p = byId.get(a.patientId);
         return {
@@ -455,11 +460,92 @@ export function createPanelRouter(opts: PanelOptions): Router {
       if (a.calendarEventId) await req.runtime!.calendar.deleteEvent(a.calendarEventId);
       await store.updateAppointment(a.id, { status: "cancelada", cancelledAt: clock().toISOString() });
       // El horario liberado se ofrece a la lista de espera.
-      const offered = await req.runtime!.waitlist.onSlotFreed(localKey(toLocal(a.start))).catch(() => null);
+      const offered = await req.runtime!.waitlist.onSlotFreed(localKey(toLocal(a.start)), a.professionalId).catch(() => null);
       return res.json({ ok: true, offeredTo: offered?.patientName ?? null });
     } else {
       await store.updateAppointment(a.id, { status: status as "asistio" | "ausente" | "confirmada" });
     }
+    res.json({ ok: true });
+  });
+
+  // ===================================================================
+  // Profesionales y excepciones de agenda
+  // ===================================================================
+
+  const professionalView = (p: Professional) => ({ ...p });
+
+  r.get("/professionals", async (req: PanelRequest, res) => {
+    const k = req.runtime!.profile.knowledge;
+    const exceptions = await req.store!.listExceptions();
+    const now = clock();
+    const withAffected = [];
+    for (const e of exceptions) {
+      const affected = await affectedAppointments(req.store!, e, now);
+      withAffected.push({ ...e, affected: affected.length, past: e.toDate < toLocal(now).toISODate()! });
+    }
+    res.json({
+      professionals: req.runtime!.profile.professionals.map(professionalView),
+      treatments: k.treatments.map((t) => ({ id: treatmentIdOf(t), name: t.name, specialty: t.specialty ?? "", duration: t.duration })),
+      exceptions: withAffected,
+      canEdit: req.membership!.role === "admin",
+    });
+  });
+
+  /** Alta o edición de un profesional (admin). El cambio rige para el bot desde el mensaje siguiente. */
+  r.put("/professionals/:id", async (req: PanelRequest, res) => {
+    if (req.membership!.role !== "admin") return res.status(403).json({ error: "Solo el admin edita los profesionales." });
+    const rt = req.runtime!;
+    const id = String(req.params.id);
+    const body = { ...(req.body ?? {}), id };
+    const problem = validateProfessional(body, rt.profile.knowledge.treatments.map(treatmentIdOf), rt.profile.professionals.filter((p) => p.id !== id));
+    if (problem) return res.status(400).json({ error: problem });
+    const p: Professional = {
+      id, name: body.name.trim(), specialty: body.specialty.trim(), color: body.color, hours: body.hours,
+      treatments: body.treatments.map((t: any) => ({ id: t.id, minutes: Number(t.minutes) })), calendar: body.calendar, active: body.active !== false,
+    };
+    try {
+      await req.store!.saveProfessional(p);
+    } catch (err) {
+      return res.status(403).json({ error: (err as Error).message });
+    }
+    const list = rt.profile.professionals;
+    const i = list.findIndex((x) => x.id === id);
+    if (i >= 0) list[i] = p;
+    else list.push(p);
+    res.json({ ok: true, professional: p });
+  });
+
+  /** Carga una excepción y devuelve los turnos que quedan afectados. */
+  r.post("/exceptions", async (req: PanelRequest, res) => {
+    const rt = req.runtime!;
+    const b = req.body ?? {};
+    const problem = validateException(b, rt.profile.professionals.map((p) => p.id));
+    if (problem) return res.status(400).json({ error: problem });
+    const e = await req.store!.addException({
+      professionalId: b.professionalId, kind: b.kind, fromDate: b.fromDate, toDate: b.kind === "rango" ? b.toDate : b.fromDate,
+      fromTime: b.kind === "franja" ? b.fromTime : null, toTime: b.kind === "franja" ? b.toTime : null,
+      reason: String(b.reason).trim(), createdBy: req.user!.email,
+    });
+    const affected = await affectedAppointments(req.store!, e, clock());
+    res.json({ ok: true, exception: e, affected: await affectedView(req.store!, affected) });
+  });
+
+  r.get("/exceptions/:id/affected", async (req: PanelRequest, res) => {
+    const e = (await req.store!.listExceptions()).find((x) => x.id === req.params.id);
+    if (!e) return res.status(404).json({ error: "No existe" });
+    res.json({ exception: e, affected: await affectedView(req.store!, await affectedAppointments(req.store!, e, clock())) });
+  });
+
+  /** Avisa por el bot a los pacientes afectados (con botones Reprogramar / Cancelar turno). */
+  r.post("/exceptions/:id/notify", async (req: PanelRequest, res) => {
+    const e = (await req.store!.listExceptions()).find((x) => x.id === req.params.id);
+    if (!e) return res.status(404).json({ error: "No existe" });
+    const r2 = await notifyAffected(req.store!, req.runtime!.notifier, e, clock);
+    res.json({ ok: true, ...r2 });
+  });
+
+  r.delete("/exceptions/:id", async (req: PanelRequest, res) => {
+    await req.store!.deleteException(String(req.params.id));
     res.json({ ok: true });
   });
 
@@ -786,6 +872,7 @@ function patientCard(p: Patient | null) {
 
 const apptView = (a: Appointment) => ({
   id: a.id, start: a.start, end: a.end, treatment: a.treatment, status: a.status, confirmed: a.confirmedByPatient,
+  professionalId: a.professionalId, professional: professionalById(a.professionalId)?.name ?? null,
 });
 
 /** Valida lo editado en la ficha. Devuelve el cambio limpio o el problema. */
@@ -814,6 +901,39 @@ export function parsePatientPatch(b: any): { name?: string | null; contactPhone?
     out.tags = tags;
   }
   return out;
+}
+
+/** Turnos afectados con el nombre y el teléfono enmascarado del paciente. */
+async function affectedView(store: Store, list: Appointment[]) {
+  const out = [];
+  for (const a of list) {
+    const p = await store.getPatient(a.patientId);
+    out.push({ ...apptView(a), patient: displayName(p) ?? a.patientName, phone: mask(p?.contactPhone ?? p?.phone ?? ""), channel: p?.channel ?? "" });
+  }
+  return out;
+}
+
+/** Validación de un profesional editado en el panel. */
+export function validateProfessional(p: any, treatmentIds: string[], others: Professional[]): string | null {
+  if (!/^[a-z0-9-]{2,40}$/.test(p.id ?? "")) return "Id inválido";
+  if (typeof p.name !== "string" || p.name.trim().length < 3 || p.name.length > 80) return "Indique el nombre del profesional";
+  if (typeof p.specialty !== "string" || !p.specialty.trim() || p.specialty.length > 80) return "Indique la especialidad";
+  if (!/^#[0-9a-f]{6}$/i.test(p.color ?? "")) return "Color inválido";
+  if (p.calendar !== "google" && p.calendar !== "interno") return "Calendario inválido";
+  if (p.calendar === "google" && others.some((o) => o.calendar === "google")) return "En esta demo solo un profesional usa Google Calendar; el resto, la agenda interna.";
+  if (!Array.isArray(p.hours)) return "Horario inválido";
+  const hm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  for (const h of p.hours) {
+    if (!(h?.weekday >= 1 && h.weekday <= 7) || !Array.isArray(h.blocks)) return "Horario inválido";
+    for (const b of h.blocks) if (!Array.isArray(b) || !hm.test(b[0]) || !hm.test(b[1]) || b[0] >= b[1]) return "Cada bloque va de HH:mm a HH:mm (inicio antes que fin)";
+  }
+  if (!Array.isArray(p.treatments) || !p.treatments.length) return "Elija al menos un tratamiento";
+  for (const t of p.treatments) {
+    if (!treatmentIds.includes(t?.id)) return "Tratamiento desconocido";
+    const m = Number(t.minutes);
+    if (!Number.isInteger(m) || m < 10 || m > 240) return "La duración va de 10 a 240 minutos";
+  }
+  return null;
 }
 
 /** En el panel no se muestra el teléfono completo. */

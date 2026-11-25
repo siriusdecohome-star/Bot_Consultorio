@@ -2,9 +2,9 @@
 import {
   DEFAULT_CLINIC_ID, SlotTakenError,
   type Appointment, type AppointmentFilter, type Channel, type Conversation, type Handoff, type Patient, type PatientPatch,
-  type Store, type TurnMetric, type ClinicDocument, type DocumentHit, type WaitlistEntry, type WaitlistStatus,
+  type Store, type TurnMetric, type ClinicDocument, type DocumentHit, type WaitlistEntry, type WaitlistStatus, type ProfessionalException,
 } from "./store.js";
-import type { ClinicKnowledge } from "../clinics/types.js";
+import type { ClinicKnowledge, Professional } from "../clinics/types.js";
 import { tsQuery } from "./textSearch.js";
 
 let seq = 0;
@@ -12,7 +12,8 @@ const newId = (p: string) => `${p}_${Date.now().toString(36)}${(++seq).toString(
 
 function check<T>(res: { data: T; error: { message: string; code?: string } | null }): T {
   if (res.error) {
-    if (res.error.code === "23505" && res.error.message.includes("no_double_booking")) throw new SlotTakenError();
+    // 23P01: la restricción de exclusión por profesional (turnos superpuestos); 23505: índice único.
+    if ((res.error.code === "23P01" || res.error.code === "23505") && res.error.message.includes("no_double_booking")) throw new SlotTakenError();
     throw new Error(`Supabase: ${res.error.message}`);
   }
   return res.data;
@@ -40,7 +41,7 @@ const toConv = (r: any): Conversation => ({
   createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const toAppt = (r: any): Appointment => ({
-  id: r.id, patientId: r.patient_id, patientName: r.patient_name, treatment: r.treatment,
+  id: r.id, patientId: r.patient_id, patientName: r.patient_name, treatment: r.treatment, professionalId: r.professional_id ?? null,
   start: new Date(r.start_at).toISOString(), end: new Date(r.end_at).toISOString(), status: r.status,
   calendarEventId: r.calendar_event_id, confirmedByPatient: r.confirmed_by_patient,
   reminder24Sent: r.reminder24_sent, reminder2Sent: r.reminder2_sent, createdAt: r.created_at,
@@ -50,6 +51,7 @@ const apptPatch = (p: Partial<Appointment>) => {
   const m: Record<string, unknown> = {};
   if (p.patientName !== undefined) m.patient_name = p.patientName;
   if (p.treatment !== undefined) m.treatment = p.treatment;
+  if (p.professionalId !== undefined) m.professional_id = p.professionalId;
   if (p.start !== undefined) m.start_at = p.start;
   if (p.end !== undefined) m.end_at = p.end;
   if (p.status !== undefined) m.status = p.status;
@@ -67,7 +69,7 @@ const toHandoff = (r: any): Handoff => ({
 
 const toWait = (r: any): WaitlistEntry => ({
   id: r.id, patientId: r.patient_id, patientName: r.patient_name, treatment: r.treatment, fromDate: r.from_date, toDate: r.to_date,
-  franja: r.franja, status: r.status, offeredSlot: r.offered_slot, offeredAt: r.offered_at, declinedSlots: r.declined_slots ?? [], createdAt: r.created_at,
+  franja: r.franja, professionalId: r.professional_id ?? null, status: r.status, offeredSlot: r.offered_slot, offeredAt: r.offered_at, declinedSlots: r.declined_slots ?? [], createdAt: r.created_at,
 });
 const waitPatch = (p: Partial<WaitlistEntry>) => {
   const m: Record<string, unknown> = {};
@@ -80,8 +82,19 @@ const waitPatch = (p: Partial<WaitlistEntry>) => {
   if (p.franja !== undefined) m.franja = p.franja;
   if (p.treatment !== undefined) m.treatment = p.treatment;
   if (p.patientName !== undefined) m.patient_name = p.patientName;
+  if (p.professionalId !== undefined) m.professional_id = p.professionalId;
   return m;
 };
+
+const toProfessional = (r: any): Professional => ({
+  id: r.id, name: r.name, specialty: r.specialty, color: r.color, hours: r.hours ?? [], treatments: r.treatments ?? [],
+  calendar: r.calendar, active: r.active,
+});
+const toException = (r: any): ProfessionalException => ({
+  id: r.id, professionalId: r.professional_id, kind: r.kind, fromDate: r.from_date, toDate: r.to_date,
+  fromTime: r.from_time ?? null, toTime: r.to_time ?? null, reason: r.reason, createdBy: r.created_by,
+  notifiedAt: r.notified_at ?? null, createdAt: r.created_at,
+});
 
 const noSession = { auth: { persistSession: false, autoRefreshToken: false } } as const;
 
@@ -222,10 +235,10 @@ export class SupabaseStore implements Store {
     }));
   }
 
-  async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots">) {
+  async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots" | "professionalId"> & { professionalId?: string | null }) {
     return toWait(check(await this.from("waitlist").insert({
       id: newId("esp"), clinic_id: this.clinicId, patient_id: e.patientId, patient_name: e.patientName, treatment: e.treatment,
-      from_date: e.fromDate, to_date: e.toDate, franja: e.franja,
+      from_date: e.fromDate, to_date: e.toDate, franja: e.franja, professional_id: e.professionalId ?? null,
     }).select().single()));
   }
   async listWaitlist(status?: WaitlistStatus[]) {
@@ -235,6 +248,34 @@ export class SupabaseStore implements Store {
   }
   async updateWaitlist(id: string, patch: Partial<Omit<WaitlistEntry, "id" | "createdAt">>) {
     return toWait(check(await this.from("waitlist").update(waitPatch(patch)).eq("clinic_id", this.clinicId).eq("id", id).select().single()));
+  }
+
+  async listProfessionals() {
+    return (check(await this.from("professionals").select("*").eq("clinic_id", this.clinicId).order("created_at")) ?? []).map(toProfessional);
+  }
+  async saveProfessional(p: Professional) {
+    const row = {
+      id: p.id, clinic_id: this.clinicId, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours,
+      treatments: p.treatments, calendar: p.calendar, active: p.active,
+    };
+    const rows = check(await this.from("professionals").upsert(row, { onConflict: "clinic_id,id" }).select());
+    if (!rows?.length) throw new Error("Sin permiso para editar profesionales (solo el admin).");
+    return toProfessional(rows[0]);
+  }
+  async listExceptions() {
+    return (check(await this.from("professional_exceptions").select("*").eq("clinic_id", this.clinicId).order("from_date")) ?? []).map(toException);
+  }
+  async addException(e: Omit<ProfessionalException, "id" | "createdAt" | "notifiedAt">) {
+    return toException(check(await this.from("professional_exceptions").insert({
+      id: newId("exc"), clinic_id: this.clinicId, professional_id: e.professionalId, kind: e.kind, from_date: e.fromDate, to_date: e.toDate,
+      from_time: e.fromTime, to_time: e.toTime, reason: e.reason, created_by: e.createdBy,
+    }).select().single()));
+  }
+  async updateException(id: string, patch: Partial<Pick<ProfessionalException, "notifiedAt">>) {
+    check(await this.from("professional_exceptions").update({ notified_at: patch.notifiedAt }).eq("clinic_id", this.clinicId).eq("id", id));
+  }
+  async deleteException(id: string) {
+    check(await this.from("professional_exceptions").delete().eq("clinic_id", this.clinicId).eq("id", id));
   }
 
   async updateKnowledge(k: ClinicKnowledge) {

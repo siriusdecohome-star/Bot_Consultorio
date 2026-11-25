@@ -19,15 +19,17 @@ Cada clínica tiene sus datos separados en **Supabase con RLS** y un **panel** p
 
 ## Contenido
 
-[Qué hace](#qué-hace) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Multiempresa y seguridad](#multiempresa-y-seguridad) · [Stack y decisiones](#stack-y-decisiones) · [Instalación](#instalación-windows--powershell) · [Variables de entorno](#variables-de-entorno) · [Entorno de pruebas y producción](#entorno-de-pruebas-y-producción) · [Uso](#uso) · [Documentos y búsqueda](#documentos-y-búsqueda) · [Pruebas](#pruebas) · [Costos](#costos) · [Datos de ejemplo](#datos-de-ejemplo) · [Despliegue](#despliegue) · [Estructura](#estructura) · [Seguridad y privacidad](#seguridad-y-privacidad)
+[Qué hace](#qué-hace) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Multidoctores y calendarios](#multidoctores-y-calendarios) · [Multiempresa y seguridad](#multiempresa-y-seguridad) · [Stack y decisiones](#stack-y-decisiones) · [Instalación](#instalación-windows--powershell) · [Variables de entorno](#variables-de-entorno) · [Entorno de pruebas y producción](#entorno-de-pruebas-y-producción) · [Uso](#uso) · [Documentos y búsqueda](#documentos-y-búsqueda) · [Pruebas](#pruebas) · [Costos](#costos) · [Datos de ejemplo](#datos-de-ejemplo) · [Despliegue](#despliegue) · [Estructura](#estructura) · [Seguridad y privacidad](#seguridad-y-privacidad)
 
 ## Qué hace
 
 | Función | Cómo |
 |---|---|
 | Responde consultas | Con el conocimiento de la clínica (tratamientos, precios, horarios, coberturas, preguntas frecuentes) y, si no está ahí, buscando en los **documentos** que subió el consultorio. Sin consejos médicos. |
-| Agenda turnos | Consulta la agenda real y **solo ofrece horarios libres**. Reserva, reprograma y cancela con herramientas validadas en el backend. |
-| Evita la doble reserva | Validación en el código **y** un índice único en PostgreSQL por `(clínica, horario)`. |
+| Agenda turnos | Pregunta la especialidad, luego el profesional si hay más de uno (o «el primero disponible»), y después el día y la hora. **Solo ofrece horarios libres** de ese profesional. Reserva, reprograma y cancela con herramientas validadas en el backend. |
+| Varios profesionales | Cada uno con especialidad, tratamientos que realiza con su duración propia, color, horario semanal y excepciones (día, franja o vacaciones). Agenda con vista del día en una columna por profesional. |
+| Evita la doble reserva | Por profesional: validación en el código **y** una restricción de exclusión en PostgreSQL que rechaza dos turnos activos del mismo profesional que se superpongan (aunque duren distinto). |
+| Excepciones de agenda | Al cargar una ausencia, el panel lista los turnos afectados y ofrece avisar por el bot; el paciente toca **Reprogramar** o **Cancelar turno**. |
 | Recordatorios | 24 h y 2 h antes, con botones **Confirmo · Cambiar horario · Cancelar**. |
 | Lista de espera | Si no hay horario, anota al paciente con su rango y franja. Cuando alguien cancela, le ofrece el hueco por WhatsApp (**Lo tomo · No, gracias**); si no responde a tiempo, pasa al siguiente. |
 | Reactivación | Invita a un control a quien no viene hace 6 meses o más, como máximo una vez cada 90 días. |
@@ -143,6 +145,22 @@ sequenceDiagram
     S->>S: se ofrece a la siguiente persona
   end
 ```
+
+## Multidoctores y calendarios
+
+- **Profesionales** ([src/data/clinics/professionals.ts](src/data/clinics/professionals.ts), tabla `professionals`): especialidad, color, horario semanal (se cruza con el de la clínica), tratamientos que realiza con los minutos que le lleva cada uno, y calendario `google` o `interno`. Se editan en el panel (pestaña Profesionales, solo admin) y rigen desde el mensaje siguiente.
+- **Disponibilidad** ([src/services/availability.ts](src/services/availability.ts)): un horario está libre para un profesional si cae en su horario, no lo toca una excepción, no se superpone con otro turno suyo (con la duración de ese tratamiento) y, si usa Google, tampoco con un evento de su calendario. «El primero disponible» combina a todos los que hacen el tratamiento y muestra cada hora una sola vez.
+- **Excepciones** (tabla `professional_exceptions`): día completo, franja de un día o rango de vacaciones, con motivo. Bloquean esos horarios para el bot; los turnos que ya estaban se listan y se puede avisar a esos pacientes por el bot (plantilla `turno_reprogramar` si pasaron más de 24 h desde su último mensaje).
+- **Lista de espera:** quien pidió un profesional solo recibe huecos de ese profesional; quien eligió «cualquiera», de cualquiera que haga su tratamiento.
+
+**Calendarios en esta demo:** la Dra. Méndez (Sonrisa Clara) usa el Google Calendar real de `GOOGLE_CALENDAR_ID`; el resto de los profesionales, incluida toda la clínica Altamira, usa la agenda interna del sistema (la base de datos).
+
+**En producción, cada profesional conecta su propio calendario** y el sistema lee solo ocupado/libre:
+1. El profesional autoriza con OAuth de Google desde el panel, con un permiso de solo disponibilidad (por ejemplo, el alcance `calendar.freebusy`): el sistema no ve títulos ni pacientes de otros eventos, solo los bloques ocupados.
+2. La disponibilidad consulta esos bloques (`freebusy.query`) además de los turnos de la base.
+3. Los turnos que reserva el bot quedan en la base (fuente de verdad) y, si el profesional lo autoriza con permiso de escritura, también como evento en su calendario.
+
+Conviene confirmar los alcances y el proceso de verificación de la app de Google en la documentación oficial antes de implementarlo; en esta demo no está implementado (la Dra. Méndez usa una cuenta de servicio compartida).
 
 ## Multiempresa y seguridad
 
@@ -314,6 +332,7 @@ npm test
 | `test:clinics` | 12 | Datos separados, doble reserva por clínica, agenda etiquetada, webhook por número, acceso por rol |
 | `test:panel` | 19 | Bandeja (tomar, pausar, devolver), agenda, pacientes, estadísticas, costos, conocimiento, PDF con búsqueda, probador, CSV |
 | `test:waitlist` | 10 | Lista de espera (ofrecer, aceptar, rechazar, vencer, horario tomado) y reactivación |
+| `test:doctors` | 14 | Doble reserva por profesional (incluida la superposición con duraciones distintas), «el primero disponible», horario por profesional, excepciones (día, franja, vacaciones) con turnos afectados y aviso por el bot, reprogramación desde el aviso, flujo especialidad → profesional → horario, lista de espera por profesional y edición desde el panel |
 | `test:inbox` | 23 | Cada estado de la bandeja y sus transiciones, cierre automático y reapertura, contadores coherentes, ficha editable, nombre real con herramienta, menú con botones o lista, horarios editados que limitan los turnos ofrecidos, datos de ejemplo |
 | `test:cases` | 8 | Los casos de calidad, con tiempo de respuesta y costo → [reports/test-results.md](reports/test-results.md) |
 | `test:integration` | 8 pasos | Contra Supabase y Google Calendar reales: reserva, doble reserva, índice por clínica, búsqueda de documentos y **RLS** con la sesión de una recepcionista |

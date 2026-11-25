@@ -5,7 +5,7 @@
  *   cancelaciones, derivaciones, lista de espera, pacientes para reactivar y métricas
  *   simuladas. Los datos reales (WhatsApp, pruebas) no se tocan.
  * - Google Calendar: borra los eventos de ejemplo anteriores (demo=seed) y crea los horarios
- *   ocupados de cada clínica y los turnos de ejemplo próximos, con la etiqueta de la clínica.
+ *   ocupados del profesional que usa Google y sus turnos de ejemplo próximos (el resto usa la agenda interna).
  * - Sube el documento de ejemplo (indicaciones después del tratamiento) a la clínica A.
  * Sin Supabase no hace nada: en memoria todo se carga solo al iniciar el servidor.
  * Uso: npm run seed                      → clínicas + 30 días de ejemplo
@@ -35,6 +35,13 @@ const now = systemClock();
 const r = await db.from("clinics").upsert(clinics.map(clinicToRow));
 if (r.error) throw new Error(`clínicas: ${r.error.message}`);
 console.log(`Clínicas guardadas: ${clinics.map((c) => c.name).join(" · ")}`);
+
+// Profesionales de cada clínica (horario, tratamientos con duración y calendario).
+const pr = await db.from("professionals").upsert(clinics.flatMap((c) => c.professionals.map((p) => ({
+  id: p.id, clinic_id: c.id, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours, treatments: p.treatments, calendar: p.calendar, active: p.active,
+}))), { onConflict: "clinic_id,id" });
+if (pr.error) throw new Error(`profesionales: ${pr.error.message}. ¿Ejecutó supabase/schema.sql?`);
+console.log(`Profesionales guardados: ${clinics.map((c) => `${c.name}: ${c.professionals.length}`).join(" · ")}`);
 
 if (process.argv.includes("--sin-ejemplos")) {
   console.log("Solo clínicas (--sin-ejemplos): no se cargaron datos de ejemplo.");

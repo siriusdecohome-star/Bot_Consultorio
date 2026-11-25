@@ -33,7 +33,9 @@ export async function seedCalendar(cal: CalendarService, clock: Clock, plan: "a"
     [3, "09:00", "Limpieza — Paciente demo H"],
     [3, "14:00", "Implantes — Paciente demo I"],
   ];
-  const busy = plan === "a" ? busyA : BUSY_B;
+  // La segunda clínica usa agenda interna (sin Google Calendar): no se siembran eventos.
+  if (plan === "b") return 0;
+  const busy = busyA;
   for (const [d, hm, summary] of busy) {
     const start = DateTime.fromISO(`${today.plus({ days: d }).toISODate()}T${hm}`, { zone: TZ() });
     await cal.createEvent({

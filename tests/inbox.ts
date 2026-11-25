@@ -246,7 +246,7 @@ try {
     assert.match(r.messages.join(" "), /USD/);
     await say("web:menu-2", "menú");
     const r2 = await say("web:menu-2", "1");
-    assert.match(r2.messages.join(" "), /horarios libres/);
+    assert.match(r2.messages.join(" "), /especialidad/, "sacar turno pregunta primero la especialidad");
   });
 
   await check("Menú: hasta 3 opciones van como botones; validación de límites de WhatsApp", async () => {

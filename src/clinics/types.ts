@@ -11,7 +11,11 @@ export interface OpeningHours {
 }
 
 export interface Treatment {
+  /** Id estable (lo usan los profesionales para decir qué tratamientos hacen). */
+  id?: string;
   name: string;
+  /** Especialidad a la que pertenece (el bot pregunta primero la especialidad). */
+  specialty?: string;
   price: string;
   duration: string;
   notes: string;
@@ -66,6 +70,25 @@ export interface ClinicKnowledge {
   menu?: ClinicMenu;
 }
 
+/**
+ * Profesional de la clínica: horario semanal propio, tratamientos que realiza
+ * con su duración, y de dónde se lee su ocupación (Google Calendar o agenda interna).
+ */
+export interface Professional {
+  id: string;
+  name: string;
+  specialty: string;
+  /** Color en la agenda (hex). */
+  color: string;
+  /** Horario semanal propio (se cruza con el horario de atención de la clínica). */
+  hours: OpeningHours[];
+  /** Tratamientos que realiza (id del tratamiento) y cuántos minutos le lleva cada uno. */
+  treatments: Array<{ id: string; minutes: number }>;
+  /** "google": su ocupación se lee también de Google Calendar; "interno": solo la agenda del sistema. */
+  calendar: "google" | "interno";
+  active: boolean;
+}
+
 export interface ClinicProfile {
   /** slug, p. ej. "sonrisa-clara" */
   id: string;
@@ -81,6 +104,8 @@ export interface ClinicProfile {
   /** colorId de Google Calendar para los turnos que reserva el bot */
   calendarColor: string;
   knowledge: ClinicKnowledge;
+  /** Profesionales de la clínica (se editan en el panel y se guardan en la base). */
+  professionals: Professional[];
 }
 
 export type Role = "admin" | "recepcion";
