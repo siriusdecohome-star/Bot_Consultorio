@@ -89,6 +89,38 @@ export interface Professional {
   active: boolean;
 }
 
+/**
+ * Regla de seguimiento: cuándo escribe el bot por su cuenta y qué dice.
+ * - antes: X horas antes del turno (72, 24, 2, 1…).
+ * - despues: X días después de un turno al que asistió.
+ * - reactivacion: a quien no viene hace X días; se repite cada `repeatDays`.
+ * - lead: X horas después de que un lead de la promo dejó de escribir sin agendar (una vez).
+ * El texto admite {nombre}, {cuando}, {fecha}, {hora}, {tratamiento}, {profesional}, {clinica}, {direccion}, {promo}, {meses}.
+ */
+export interface FollowupRule {
+  id: string;
+  kind: "antes" | "despues" | "reactivacion" | "lead";
+  active: boolean;
+  hours?: number;
+  days?: number;
+  repeatDays?: number;
+  text: string;
+  /** Solo «antes»: texto si el paciente ya confirmó (sin botones). */
+  textConfirmed?: string;
+  /** Botones de respuesta rápida (hasta 3, de hasta 20 caracteres). */
+  buttons: string[];
+  /** Plantilla de Meta que se usa si pasaron más de 24 h desde el último mensaje del paciente. */
+  template: string;
+}
+
+export interface ClinicSettings {
+  /** Horario de silencio (hora local): los avisos automáticos esperan hasta que termine. */
+  quietHours: { from: string; to: string } | null;
+  /** Minutos que se guarda un horario ofrecido a la lista de espera. */
+  waitlistOfferMinutes: number;
+  rules: FollowupRule[];
+}
+
 export interface ClinicProfile {
   /** slug, p. ej. "sonrisa-clara" */
   id: string;
@@ -106,6 +138,8 @@ export interface ClinicProfile {
   knowledge: ClinicKnowledge;
   /** Profesionales de la clínica (se editan en el panel y se guardan en la base). */
   professionals: Professional[];
+  /** Reglas de seguimiento y recordatorios, horario de silencio y lista de espera. */
+  settings: ClinicSettings;
 }
 
 export type Role = "admin" | "recepcion";

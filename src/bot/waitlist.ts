@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { config } from "../config.js";
-import { withClinic } from "../clinics/context.js";
+import { currentClinic, withClinic } from "../clinics/context.js";
 import type { ClinicProfile } from "../clinics/types.js";
 import { kb } from "../data/knowledge.js";
 import type { CalendarService } from "../services/calendar.js";
@@ -22,8 +22,14 @@ export class WaitlistService {
     private calendar: CalendarService,
     private clock: Clock,
     readonly clinic?: ClinicProfile,
-    private offerMinutes = config.waitlist.offerMinutes,
+    /** Solo para pruebas: fija la duración de la oferta. Si no, se usa la de la clínica (pestaña Seguimientos). */
+    private fixedOfferMinutes?: number,
   ) {}
+
+  /** Minutos que se guarda el horario ofrecido (ajuste de la clínica). */
+  private get offerMinutes(): number {
+    return this.fixedOfferMinutes ?? currentClinic().settings?.waitlistOfferMinutes ?? config.waitlist.offerMinutes;
+  }
 
   /**
    * Se liberó `slot` (hora local YYYY-MM-DDTHH:mm) de un profesional: se ofrece a quien

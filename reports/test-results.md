@@ -1,6 +1,6 @@
 # Resultados de las pruebas
 
-- **Fecha:** 2026-11-25 22:33 UTC
+- **Fecha:** 2026-11-25 22:47 UTC
 - **Proveedor:** mock (reglas-v1)
 - **Resultado:** 8/8 casos OK
 - **Tiempo de respuesta por mensaje:** promedio 0.00 s · p95 0.01 s
@@ -35,7 +35,7 @@
 
 ### 4. Pedido de hablar con una persona
 - **Paciente:** Hola, quiero saber el precio del blanqueamiento
-- **Bot** _(0 ms)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. *Blanqueamiento en consultorio*: USD 180 (60 min). Con la Dra. Paredes. Requiere consulta previa. ¿Quiere que le busque un turno? _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
+- **Bot** _(1 ms)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. *Blanqueamiento en consultorio*: USD 180 (60 min). Con la Dra. Paredes. Requiere consulta previa. ¿Quiere que le busque un turno? _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
 - **Paciente:** Prefiero hablar con una persona, por favor
 - **Bot** _(0 ms · derivar_a_humano)_: ¡Por supuesto! 🙌 Ya le pasé su consulta a una persona del equipo, que le va a responder por este mismo chat en horario de atención.
 - **Paciente:** ¿Hola?
@@ -45,7 +45,7 @@
 - **Paciente:** Hola, necesito un turno lo antes posible
 - **Bot** _(1 ms · listar_profesionales)_: ¡Hola! 👋 Gracias por escribir a *Clínica Dental Sonrisa Clara*. Soy su asistente virtual: puedo ayudarle a sacar o cambiar turnos y contarle precios y promociones. ¡Con gusto! 📅 ¿Para qué especialidad necesita el turno? 1️⃣ Odontología general 2️⃣ Estética dental 3️⃣ Ortodoncia Respóndame con el número. _🔒 Sus datos se usan solo para gestionar sus turnos. Si prefiere hablar con una persona, escriba «persona»._
 - **Paciente:** Odontología general
-- **Bot** _(0 ms · listar_profesionales)_: ¿Con quién prefiere atenderse? 1️⃣ Dra. Laura Méndez (todos los días) 2️⃣ Dra. Sofía Paredes (lunes, miércoles, viernes) 3️⃣ El primero disponible
+- **Bot** _(1 ms · listar_profesionales)_: ¿Con quién prefiere atenderse? 1️⃣ Dra. Laura Méndez (todos los días) 2️⃣ Dra. Sofía Paredes (lunes, miércoles, viernes) 3️⃣ El primero disponible
 - **Paciente:** El primero disponible
 - **Bot** _(4 ms · buscar_horarios_disponibles)_: Perfecto, con el primero disponible. 📅 Para el *martes 24/11* tengo estos horarios libres: 1️⃣ 10:00 2️⃣ 10:30 3️⃣ 11:30 4️⃣ 12:00 ¿Cuál le queda mejor? Respóndame con el número.
 - **Paciente:** ¿Puede ser el domingo a las 10?
@@ -61,9 +61,9 @@
 - **Paciente:** 1
 - **Bot** _(0 ms)_: ¡Excelente! Para confirmar la reserva, ¿me indica su nombre y apellido?
 - **Paciente:** Tomás Herrera
-- **Bot** _(1 ms · guardar_nombre_paciente, crear_cita)_: ¡Listo, Tomás! ✅ Su turno quedó confirmado: 📅 *Miércoles 25/11 a las 09:00* 🦷 Consulta y diagnóstico 👩‍⚕️ Dra. Laura Méndez 📍 Av. Siempreviva 742, piso 2, consultorio B Le enviaré un recordatorio el día anterior. Si necesita cambiarlo, escríbame cuando quiera.
+- **Bot** _(2 ms · guardar_nombre_paciente, crear_cita)_: ¡Listo, Tomás! ✅ Su turno quedó confirmado: 📅 *Miércoles 25/11 a las 09:00* 🦷 Consulta y diagnóstico 👩‍⚕️ Dra. Laura Méndez 📍 Av. Siempreviva 742, piso 2, consultorio B Le enviaré un recordatorio el día anterior. Si necesita cambiarlo, escríbame cuando quiera.
 - **Paciente:** Uy, mejor cambiarlo para el jueves a la tarde
-- **Bot** _(1 ms · ver_citas_paciente, buscar_horarios_disponibles)_: ¡Claro! Su turno actual es el *miércoles 25/11 a las 09:00*. Para el *jueves 26/11* tengo libres: 1️⃣ 14:30 2️⃣ 15:00 3️⃣ 15:30 4️⃣ 16:00 ¿Cuál le queda mejor? Respóndame con el número.
+- **Bot** _(2 ms · ver_citas_paciente, buscar_horarios_disponibles)_: ¡Claro! Su turno actual es el *miércoles 25/11 a las 09:00*. Para el *jueves 26/11* tengo libres: 1️⃣ 14:30 2️⃣ 15:00 3️⃣ 15:30 4️⃣ 16:00 ¿Cuál le queda mejor? Respóndame con el número.
 - **Paciente:** La 2
 - **Bot** _(1 ms · reprogramar_cita)_: ¡Listo! ✅ Su turno ahora es el *jueves 26/11 a las 15:00*. El horario anterior quedó libre. Le enviaré un recordatorio el día anterior.
 

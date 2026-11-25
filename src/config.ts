@@ -90,6 +90,8 @@ export const config = {
     templateReactivation: env("WHATSAPP_TEMPLATE_REACTIVATION", "reactivacion_paciente"),
     /** Aviso de reprogramación cuando un profesional no va a atender (excepción de agenda). */
     templateReschedule: env("WHATSAPP_TEMPLATE_RESCHEDULE", "turno_reprogramar"),
+    /** Seguimiento posterior al turno («¿cómo se sintió?»). */
+    templatePostVisit: env("WHATSAPP_TEMPLATE_POST_VISIT", "seguimiento_post_turno"),
     templateLang: env("WHATSAPP_TEMPLATE_LANG", "es"),
   },
 

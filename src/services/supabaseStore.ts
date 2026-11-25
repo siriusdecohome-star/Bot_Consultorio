@@ -4,7 +4,7 @@ import {
   type Appointment, type AppointmentFilter, type Channel, type Conversation, type Handoff, type Patient, type PatientPatch,
   type Store, type TurnMetric, type ClinicDocument, type DocumentHit, type WaitlistEntry, type WaitlistStatus, type ProfessionalException,
 } from "./store.js";
-import type { ClinicKnowledge, Professional } from "../clinics/types.js";
+import type { ClinicKnowledge, ClinicSettings, Professional } from "../clinics/types.js";
 import { tsQuery } from "./textSearch.js";
 
 let seq = 0;
@@ -44,7 +44,7 @@ const toAppt = (r: any): Appointment => ({
   id: r.id, patientId: r.patient_id, patientName: r.patient_name, treatment: r.treatment, professionalId: r.professional_id ?? null,
   start: new Date(r.start_at).toISOString(), end: new Date(r.end_at).toISOString(), status: r.status,
   calendarEventId: r.calendar_event_id, confirmedByPatient: r.confirmed_by_patient,
-  reminder24Sent: r.reminder24_sent, reminder2Sent: r.reminder2_sent, createdAt: r.created_at,
+  reminder24Sent: r.reminder24_sent, reminder2Sent: r.reminder2_sent, remindersSent: r.reminders_sent ?? [], createdAt: r.created_at,
   cancelledAt: r.cancelled_at ?? null,
 });
 const apptPatch = (p: Partial<Appointment>) => {
@@ -59,6 +59,7 @@ const apptPatch = (p: Partial<Appointment>) => {
   if (p.confirmedByPatient !== undefined) m.confirmed_by_patient = p.confirmedByPatient;
   if (p.reminder24Sent !== undefined) m.reminder24_sent = p.reminder24Sent;
   if (p.reminder2Sent !== undefined) m.reminder2_sent = p.reminder2Sent;
+  if (p.remindersSent !== undefined) m.reminders_sent = p.remindersSent;
   if (p.cancelledAt !== undefined) m.cancelled_at = p.cancelledAt;
   return m;
 };
@@ -276,6 +277,11 @@ export class SupabaseStore implements Store {
   }
   async deleteException(id: string) {
     check(await this.from("professional_exceptions").delete().eq("clinic_id", this.clinicId).eq("id", id));
+  }
+
+  async updateSettings(s: ClinicSettings) {
+    const rows = check(await this.from("clinics").update({ settings: s }).eq("id", this.clinicId).select("id"));
+    if (!rows?.length) throw new Error("Sin permiso para editar los seguimientos (solo el admin).");
   }
 
   async updateKnowledge(k: ClinicKnowledge) {

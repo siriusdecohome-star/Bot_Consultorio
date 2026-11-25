@@ -31,6 +31,7 @@
     <button data-view="agenda">Agenda</button>
     <button data-view="profesionales">Profesionales</button>
     <button data-view="pacientes">Pacientes</button>
+    <button data-view="seguimientos">Seguimientos</button>
     <button data-view="estadisticas">Estadísticas</button>
     <button data-view="costos" data-admin>Costos</button>
     <button data-view="aprendizaje">Aprendizaje</button>
@@ -209,6 +210,45 @@
         <p class="hint">El asistente les escribe solo (una vez cada 90 días) para ofrecerles un control. También puede enviarlo ahora.</p>
         <div class="table-wrap"><table class="tbl" id="reactivation"></table></div>
       </section>
+    </section>
+
+    <!-- ================= Seguimientos ================= -->
+    <section class="view" data-view="seguimientos" hidden>
+      <div class="view-head">
+        <h2>Seguimientos y recordatorios</h2>
+        <div class="actions"><span class="hint" id="fu-mode"></span><button class="btn" type="button" id="fu-save">Guardar cambios</button></div>
+      </div>
+      <p class="note-box small" id="fu-note">💬 <b>En WhatsApp real:</b> si pasaron más de 24 h desde el último mensaje del paciente, los mensajes que inicia la clínica se envían con una <b>plantilla habilitada por Meta</b>. En ese caso, el texto que llega es el de la plantilla y solo cambian sus datos (nombre, fecha, tratamiento): lo editable acá queda limitado a lo que la plantilla permita. Dentro de las 24 h se envía el texto de la regla tal cual, con sus botones.</p>
+      <div class="grid">
+        <div class="col-main">
+          <section class="card">
+            <div class="card-head"><h2>Reglas</h2><span class="hint">Se aplican desde la próxima revisión (cada minuto)</span></div>
+            <div class="rules" id="fu-rules"><p class="loading">Cargando…</p></div>
+            <div class="btn-row" id="fu-add">
+              <button class="btn ghost small" type="button" data-add-rule="antes">+ Recordatorio antes del turno</button>
+              <button class="btn ghost small" type="button" data-add-rule="despues">+ Seguimiento después del turno</button>
+            </div>
+            <p class="hint">Campos que se completan solos: <code>{nombre}</code> <code>{cuando}</code> <code>{fecha}</code> <code>{hora}</code> <code>{tratamiento}</code> <code>{profesional}</code> <code>{clinica}</code> <code>{direccion}</code> <code>{promo}</code> <code>{meses}</code>.</p>
+          </section>
+        </div>
+        <div class="col-side">
+          <section class="card kb">
+            <div class="card-head"><h2>Ajustes generales</h2></div>
+            <label class="check"><input type="checkbox" id="fu-quiet-on" /> Horario de silencio</label>
+            <div class="two">
+              <label>Desde <input type="time" id="fu-quiet-from" /></label>
+              <label>Hasta <input type="time" id="fu-quiet-to" /></label>
+            </div>
+            <p class="hint">En ese horario el bot no escribe por su cuenta; los avisos salen al terminar. Las ofertas de la lista de espera no esperan, porque el horario se puede perder.</p>
+            <label>Duración de la oferta de la lista de espera (minutos) <input type="number" id="fu-offer" min="5" max="240" step="5" /></label>
+            <p class="hint">Si la persona no responde en ese tiempo, el horario pasa a la siguiente.</p>
+          </section>
+          <section class="card">
+            <div class="card-head"><h2>Próximos envíos</h2><span class="hint">recordatorios antes del turno</span></div>
+            <ul class="appt-mini" id="fu-upcoming"><li class="loading">Cargando…</li></ul>
+          </section>
+        </div>
+      </div>
     </section>
 
     <!-- ================= Estadísticas ================= -->

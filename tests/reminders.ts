@@ -14,6 +14,11 @@ import { InMemoryStore } from "../src/services/store.js";
 import { ChannelNotifier, WebOutbox } from "../src/services/notifier.js";
 import { WhatsAppApiError, type WhatsAppSender } from "../src/channels/whatsappClient.js";
 import { TZ } from "../src/services/time.js";
+import { currentClinic } from "../src/clinics/context.js";
+
+// Esta prueba verifica las reglas de siempre (24 h, 2 h y el lead) sin horario de silencio;
+// el silencio y las demás reglas se prueban en tests/followups.ts.
+currentClinic().settings.quietHours = null;
 
 let nowMs = 0;
 const at = (iso: string) => { nowMs = DateTime.fromISO(iso, { zone: TZ() }).toMillis(); };

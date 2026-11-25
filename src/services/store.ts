@@ -3,7 +3,7 @@
  * la implementación con Supabase (PostgreSQL) que cumple la misma interfaz.
  */
 
-import type { ClinicKnowledge, Professional } from "../clinics/types.js";
+import type { ClinicKnowledge, ClinicSettings, Professional } from "../clinics/types.js";
 import { score, terms } from "./textSearch.js";
 
 export type Channel = "web" | "whatsapp" | "cli" | "test";
@@ -42,6 +42,8 @@ export interface Appointment {
   confirmedByPatient: boolean;
   reminder24Sent: boolean;
   reminder2Sent: boolean;
+  /** Reglas de seguimiento ya enviadas (u omitidas) para este turno: evita envíos dobles. */
+  remindersSent?: string[];
   createdAt: string;
   /** Cuándo se canceló (para las estadísticas). */
   cancelledAt?: string | null;
@@ -57,7 +59,9 @@ export interface ChatMessage {
   options?: string[];
   /** Mensajes que envía el bot por iniciativa propia (recordatorios, seguimiento). */
   meta?: {
-    kind: "reminder24" | "reminder2" | "followup" | "waitlist_offer" | "reactivation" | "reschedule_request";
+    kind: "reminder24" | "reminder2" | "reminder" | "post_visit" | "followup" | "waitlist_offer" | "reactivation" | "reschedule_request";
+    /** Regla de seguimiento que generó el aviso. */
+    ruleId?: string;
     appointmentId?: string;
     /** Lista de espera: entrada y horario ofrecido (hora local YYYY-MM-DDTHH:mm). */
     waitlistId?: string;
@@ -235,6 +239,9 @@ export interface Store {
   addException(e: Omit<ProfessionalException, "id" | "createdAt" | "notifiedAt">): Promise<ProfessionalException>;
   updateException(id: string, patch: Partial<Pick<ProfessionalException, "notifiedAt">>): Promise<void>;
   deleteException(id: string): Promise<void>;
+
+  // Seguimientos: reglas y ajustes de la clínica
+  updateSettings(s: ClinicSettings): Promise<void>;
 
   // Zona de aprendizaje
   updateKnowledge(k: ClinicKnowledge): Promise<void>;
@@ -450,6 +457,9 @@ export class InMemoryStore implements Store {
 
   async updateKnowledge(k: ClinicKnowledge) {
     this.data.knowledge.set(this.clinicId, structuredClone(k));
+  }
+  async updateSettings(_s: ClinicSettings) {
+    // En memoria la fuente es el perfil de la clínica (lo actualiza el panel).
   }
   async listDocuments() {
     return this.data.documents.filter((d) => this.mine(d)).map((d) => strip(d)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));

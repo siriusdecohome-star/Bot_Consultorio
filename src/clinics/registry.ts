@@ -3,6 +3,7 @@ import { ReminderService } from "../bot/reminders.js";
 import { WaitlistService } from "../bot/waitlist.js";
 import type { WhatsAppSender } from "../channels/whatsappClient.js";
 import { demoClinics } from "../data/clinics/index.js";
+import { withDefaults } from "../data/clinics/settings.js";
 import type { LlmProvider } from "../llm/types.js";
 import { ClinicCalendar, type CalendarService } from "../services/calendar.js";
 import type { Services } from "../services/factory.js";
@@ -26,6 +27,7 @@ export function rowToClinic(r: any): ClinicProfile {
     calendarColor: r.calendar_color,
     knowledge: r.knowledge as ClinicKnowledge,
     professionals: [],
+    settings: withDefaults(r.settings),
   };
 }
 
@@ -33,7 +35,7 @@ export function clinicToRow(c: ClinicProfile) {
   return {
     id: c.id, name: c.name, timezone: c.timezone, slot_minutes: c.slotMinutes,
     whatsapp_phone_number_id: c.whatsappPhoneNumberId, calendar_tag: c.calendarTag,
-    is_primary: c.primary, calendar_color: c.calendarColor, knowledge: c.knowledge,
+    is_primary: c.primary, calendar_color: c.calendarColor, knowledge: c.knowledge, settings: c.settings,
   };
 }
 

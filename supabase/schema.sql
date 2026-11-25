@@ -151,6 +151,10 @@ alter table conversations add column if not exists assigned_to text;
 alter table conversations add column if not exists closed_at timestamptz;
 alter table conversations add column if not exists closed_reason text;
 
+-- Seguimientos (etapa 3): reglas por clínica y reglas ya enviadas por turno (sin envíos dobles).
+alter table clinics add column if not exists settings jsonb;          -- reglas, horario de silencio, lista de espera
+alter table appointments add column if not exists reminders_sent text[] not null default '{}';
+
 -- ============================================================
 -- Multidoctores: profesionales, excepciones de agenda y doble reserva por profesional.
 -- ============================================================

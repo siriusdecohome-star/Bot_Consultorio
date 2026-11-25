@@ -1,7 +1,7 @@
 /**
  * Crea en Meta las plantillas que usa el bot cuando la ventana de 24 h está cerrada:
  * recordatorio, seguimiento de la promo, turno liberado (lista de espera), reactivación
- * y aviso de reprogramación (cuando un profesional no va a atender).
+ * aviso de reprogramación (cuando un profesional no va a atender) y seguimiento posterior al turno.
  * Meta las revisa (suele tardar de minutos a horas).
  * Uso: npm run wa:templates                       → crea las que falten
  *      npm run wa:templates -- --status            → estado de revisión de todas
@@ -12,8 +12,8 @@
  */
 import { config } from "../src/config.js";
 
-const { token, graphVersion, templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateReschedule, templateLang } = config.whatsapp;
-const ALL = [templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateReschedule];
+const { token, graphVersion, templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateReschedule, templatePostVisit, templateLang } = config.whatsapp;
+const ALL = [templateReminder, templateFollowup, templateWaitlist, templateReactivation, templateReschedule, templatePostVisit];
 const waba = (process.env.WHATSAPP_WABA_ID ?? "").trim();
 if (!token || !waba) {
   console.log("Faltan WHATSAPP_TOKEN o WHATSAPP_WABA_ID en el .env");
@@ -127,6 +127,25 @@ const templates = [
         buttons: [
           { type: "QUICK_REPLY", text: "Reprogramar" },
           { type: "QUICK_REPLY", text: "Cancelar turno" },
+        ],
+      },
+    ],
+  },
+  {
+    name: templatePostVisit,
+    language: templateLang,
+    category: "UTILITY",
+    components: [
+      {
+        type: "BODY",
+        text: "Hola, {{1}}. Le escribimos de Clínica Dental Sonrisa Clara para saber cómo se sintió después de su {{2}}. Si tiene alguna molestia o duda, responda este mensaje.",
+        example: { body_text: [["Ana", "limpieza dental"]] },
+      },
+      {
+        type: "BUTTONS",
+        buttons: [
+          { type: "QUICK_REPLY", text: "Todo bien" },
+          { type: "QUICK_REPLY", text: "Tengo una consulta" },
         ],
       },
     ],

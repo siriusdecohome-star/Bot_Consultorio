@@ -102,6 +102,7 @@ const loaders = {
   agenda: () => loadAgenda(),
   profesionales: () => loadProfessionals(),
   pacientes: () => loadPatients(),
+  seguimientos: () => loadFollowups(),
   estadisticas: () => loadStats(),
   costos: () => loadCosts(),
   aprendizaje: () => loadLearning(),
@@ -802,7 +803,7 @@ function affectedHtml(exceptionId, affected, notifiedAt) {
 let excKind = "dia";
 segment("#exc-kind", (k) => {
   excKind = k;
-  for (const el of $("#exc-form [data-only]")) el.hidden = el.dataset.only !== k;
+  for (const el of $$("#exc-form [data-only]")) el.hidden = el.dataset.only !== k;
   $("#exc-form [data-label-from]").textContent = k === "rango" ? "Desde" : "Fecha";
 });
 $("#exc-form").addEventListener("submit", async (e) => {
@@ -901,6 +902,119 @@ document.addEventListener("submit", async (e) => {
     closeDrawer();
     loadProfessionals();
   } catch (err) { toast(err.message, true); }
+});
+
+// =====================================================================
+// Seguimientos: reglas de recordatorios, seguimiento y reactivación
+// =====================================================================
+const RULE_KIND = {
+  antes: ["⏰ Antes del turno", "horas antes"],
+  despues: ["💬 Después del turno", "días después (si asistió)"],
+  reactivacion: ["🔁 Reactivación", "días sin venir"],
+  lead: ["📣 Lead de la promo", "horas sin respuesta"],
+};
+function ruleHtml(r, i, canEdit) {
+  const [label, unit] = RULE_KIND[r.kind] ?? [r.kind, ""];
+  const amount = r.kind === "antes" || r.kind === "lead" ? r.hours : r.days;
+  const dis = canEdit ? "" : " disabled";
+  const removable = canEdit && (r.kind === "antes" || r.kind === "despues");
+  return `<div class="rule${r.active ? "" : " off"}" data-i="${i}" data-id="${esc(r.id)}" data-kind="${esc(r.kind)}">
+    <div class="rule-head">
+      <label class="switch"><input type="checkbox" data-k="active"${r.active ? " checked" : ""}${dis} aria-label="Regla activa" /><span></span></label>
+      <b>${esc(label)}</b>
+      <label class="amount"><input type="number" data-k="amount" value="${esc(amount)}" min="1"${dis} aria-label="${esc(unit)}" /> ${esc(unit)}</label>
+      ${r.kind === "reactivacion" ? `<label class="amount">cada <input type="number" data-k="repeatDays" value="${esc(r.repeatDays ?? 90)}" min="7"${dis} aria-label="Repetir cada días" /> días</label>` : ""}
+      ${removable ? `<button type="button" class="icon" data-del-rule="${i}" aria-label="Quitar regla">✕</button>` : ""}
+    </div>
+    <label>Texto <textarea data-k="text" rows="3" maxlength="1024"${dis}>${esc(r.text)}</textarea></label>
+    ${r.kind === "antes" ? `<label>Texto si ya confirmó (opcional, sin botones) <textarea data-k="textConfirmed" rows="2" maxlength="1024"${dis}>${esc(r.textConfirmed ?? "")}</textarea></label>` : ""}
+    <div class="two">
+      <label>Botones (hasta 3, separados por «|») <input data-k="buttons" value="${esc(r.buttons.join(" | "))}"${dis} /></label>
+      <label>Plantilla de Meta (fuera de las 24 h) <input data-k="template" value="${esc(r.template)}"${dis} /></label>
+    </div>
+  </div>`;
+}
+
+async function loadFollowups() {
+  const d = await api("/followups");
+  state.followups = d;
+  $("#fu-mode").textContent = d.canEdit ? "Puede editar (admin)" : "Solo lectura: lo edita el admin.";
+  $("#fu-save").hidden = !d.canEdit;
+  $("#fu-add").hidden = !d.canEdit;
+  renderRules();
+  const q = d.settings.quietHours;
+  $("#fu-quiet-on").checked = !!q;
+  $("#fu-quiet-from").value = q?.from ?? "21:00";
+  $("#fu-quiet-to").value = q?.to ?? "08:00";
+  $("#fu-offer").value = d.settings.waitlistOfferMinutes;
+  for (const el of ["#fu-quiet-on", "#fu-quiet-from", "#fu-quiet-to", "#fu-offer"]) $(el).disabled = !d.canEdit;
+  const ruleName = (id) => { const r = d.settings.rules.find((x) => x.id === id); return r ? `${r.hours} h antes` : id; };
+  $("#fu-upcoming").innerHTML = d.upcoming.length ? d.upcoming.map((u) => `<li><span class="when">${esc(fDateTime(u.at))}</span><span class="tr">${esc(u.patient)} · turno ${esc(fDateTime(u.start))}</span><span class="pill muted">${esc(ruleName(u.ruleId))}</span>${u.demo ? '<span class="ch">ejemplo: no se envía</span>' : ""}</li>`).join("")
+    : empty("No hay recordatorios programados para los próximos días.");
+  stamp();
+}
+function renderRules() {
+  const d = state.followups;
+  const order = { antes: 0, despues: 1, lead: 2, reactivacion: 3 };
+  const rules = d.settings.rules.map((r, i) => [r, i]).sort(([a], [b]) => order[a.kind] - order[b.kind] || (b.hours ?? 0) - (a.hours ?? 0));
+  $("#fu-rules").innerHTML = rules.map(([r, i]) => ruleHtml(r, i, d.canEdit)).join("");
+}
+/** Lee lo que hay en pantalla y lo vuelve a poner en state.followups (para no perder cambios al agregar o quitar). */
+function readRules() {
+  const d = state.followups;
+  for (const el of $$("#fu-rules .rule")) {
+    const r = d.settings.rules[Number(el.dataset.i)];
+    const v = (k) => el.querySelector(`[data-k="${k}"]`);
+    r.active = v("active").checked;
+    const amount = Number(v("amount").value);
+    if (r.kind === "antes" || r.kind === "lead") r.hours = amount; else r.days = amount;
+    if (r.kind === "reactivacion") r.repeatDays = Number(v("repeatDays").value);
+    r.text = v("text").value;
+    if (r.kind === "antes") { const tc = v("textConfirmed").value.trim(); if (tc) r.textConfirmed = tc; else delete r.textConfirmed; }
+    r.buttons = v("buttons").value.split("|").map((x) => x.trim()).filter(Boolean);
+    r.template = v("template").value.trim();
+  }
+}
+document.addEventListener("click", (e) => {
+  const add = e.target.closest("[data-add-rule]");
+  if (add && state.followups) {
+    readRules();
+    const kind = add.dataset.addRule;
+    const n = Date.now().toString(36).slice(-4);
+    state.followups.settings.rules.push(kind === "antes"
+      ? { id: `antes-${n}`, kind, hours: 48, active: true, text: "Hola, {nombre}. Le recordamos su turno del *{cuando}* con {profesional}. ¿Nos confirma?", buttons: ["✅ Confirmo", "📅 Cambiar horario", "❌ Cancelar"], template: "recordatorio_turno" }
+      : { id: `despues-${n}`, kind, days: 7, active: true, text: "Hola, {nombre} 👋 ¿Cómo sigue después de su {tratamiento}? Si necesita algo, escríbanos.", buttons: ["😊 Todo bien", "Tengo una consulta"], template: "seguimiento_post_turno" });
+    renderRules();
+    return;
+  }
+  const del = e.target.closest("[data-del-rule]");
+  if (del && state.followups) {
+    readRules();
+    state.followups.settings.rules.splice(Number(del.dataset.delRule), 1);
+    renderRules();
+  }
+});
+$("#fu-rules").addEventListener("change", (e) => {
+  const rule = e.target.closest(".rule");
+  if (rule && e.target.dataset.k === "active") rule.classList.toggle("off", !e.target.checked);
+});
+$("#fu-save").addEventListener("click", async () => {
+  const d = state.followups;
+  if (!d?.canEdit) return;
+  readRules();
+  const settings = {
+    ...d.settings,
+    quietHours: $("#fu-quiet-on").checked ? { from: $("#fu-quiet-from").value, to: $("#fu-quiet-to").value } : null,
+    waitlistOfferMinutes: Number($("#fu-offer").value),
+  };
+  const btn = $("#fu-save");
+  btn.disabled = true;
+  try {
+    await put("/followups", { settings });
+    toast("Seguimientos guardados: rigen desde la próxima revisión");
+    loadFollowups();
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false;
 });
 
 // =====================================================================

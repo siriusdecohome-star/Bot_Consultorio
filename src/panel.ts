@@ -17,7 +17,9 @@ import { renamePatient } from "./bot/tools.js";
 import { validateMenu } from "./bot/menu.js";
 import { affectedAppointments, notifyAffected, validateException } from "./bot/exceptions.js";
 import { professionalById, treatmentIdOf } from "./services/availability.js";
-import type { Professional } from "./clinics/types.js";
+import type { ClinicSettings, Professional } from "./clinics/types.js";
+import { upcomingSends } from "./bot/reminders.js";
+import { config as appConfig } from "./config.js";
 import { docKind, MAX_DOC_BYTES, toChunks } from "./documents.js";
 import { toCsv, type Cell } from "./csv.js";
 import { localKey, toLocal, TZ, type Clock } from "./services/time.js";
@@ -550,12 +552,44 @@ export function createPanelRouter(opts: PanelOptions): Router {
   });
 
   // ===================================================================
+  // Seguimientos y recordatorios: reglas por clínica
+  // ===================================================================
+
+  r.get("/followups", async (req: PanelRequest, res) => {
+    const rt = req.runtime!;
+    const upcoming = await upcomingSends(req.store!, clock());
+    res.json({
+      settings: rt.profile.settings,
+      upcoming,
+      // En WhatsApp real, fuera de las 24 h desde el último mensaje del paciente solo se puede usar una plantilla aprobada.
+      whatsappNumber: Boolean(rt.profile.whatsappPhoneNumberId),
+      templates: [appConfig.whatsapp.templateReminder, appConfig.whatsapp.templateFollowup, appConfig.whatsapp.templateReactivation, appConfig.whatsapp.templatePostVisit],
+      canEdit: req.membership!.role === "admin",
+    });
+  });
+
+  r.put("/followups", async (req: PanelRequest, res) => {
+    if (req.membership!.role !== "admin") return res.status(403).json({ error: "Solo el admin edita los seguimientos." });
+    const problem = validateSettings(req.body?.settings);
+    if (problem) return res.status(400).json({ error: problem });
+    const s = req.body.settings as ClinicSettings;
+    try {
+      await req.store!.updateSettings(s);
+    } catch (err) {
+      return res.status(403).json({ error: (err as Error).message });
+    }
+    // El servicio de recordatorios lee las reglas en cada revisión: rige desde ya.
+    req.runtime!.profile.settings = s;
+    res.json({ ok: true });
+  });
+
+  // ===================================================================
   // Lista de espera y reactivación de pacientes
   // ===================================================================
 
   r.get("/waitlist", async (req: PanelRequest, res) => {
     const list = await req.store!.listWaitlist(["esperando", "ofrecido", "aceptado"]);
-    res.json({ entries: list.reverse().slice(0, 100), offerMinutes: config.waitlist.offerMinutes });
+    res.json({ entries: list.reverse().slice(0, 100), offerMinutes: req.runtime!.profile.settings.waitlistOfferMinutes });
   });
 
   r.post("/waitlist/:id/cancel", async (req: PanelRequest, res) => {
@@ -570,7 +604,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
   r.get("/reactivation", async (req: PanelRequest, res) => {
     const list = await req.runtime!.reminders.reactivationCandidates();
     res.json({
-      months: config.reactivation.months,
+      months: Math.round((req.runtime!.profile.settings.rules.find((r) => r.kind === "reactivacion")?.days ?? 180) / 30),
       candidates: list.map((c) => ({
         patientId: c.patient.id, name: c.patient.name, phone: mask(c.patient.phone), channel: c.patient.channel,
         lastVisit: toLocal(c.lastVisit).toISODate(), lastTreatment: c.lastTreatment, monthsAgo: c.monthsAgo, lastInvitation: c.lastInvitation,
@@ -932,6 +966,37 @@ export function validateProfessional(p: any, treatmentIds: string[], others: Pro
     if (!treatmentIds.includes(t?.id)) return "Tratamiento desconocido";
     const m = Number(t.minutes);
     if (!Number.isInteger(m) || m < 10 || m > 240) return "La duración va de 10 a 240 minutos";
+  }
+  return null;
+}
+
+/** Validación de las reglas de seguimiento y ajustes editados en el panel. */
+export function validateSettings(s: any): string | null {
+  if (!s || typeof s !== "object") return "Faltan los ajustes";
+  const hm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (s.quietHours !== null && (!s.quietHours || !hm.test(s.quietHours.from) || !hm.test(s.quietHours.to) || s.quietHours.from === s.quietHours.to)) {
+    return "El horario de silencio va de HH:mm a HH:mm (distintos), o se desactiva";
+  }
+  const m = Number(s.waitlistOfferMinutes);
+  if (!Number.isInteger(m) || m < 5 || m > 240) return "La oferta de la lista de espera dura de 5 a 240 minutos";
+  if (!Array.isArray(s.rules) || s.rules.length > 12) return "Reglas inválidas (hasta 12)";
+  const ids = new Set<string>();
+  const range = (v: unknown, a: number, b: number) => Number.isInteger(Number(v)) && Number(v) >= a && Number(v) <= b;
+  for (const r of s.rules) {
+    if (!/^[a-z0-9-]{2,30}$/.test(r?.id ?? "") || ids.has(r.id)) return "Ids de reglas inválidos o repetidos";
+    ids.add(r.id);
+    if (typeof r.active !== "boolean") return "Cada regla tiene que estar activa o no";
+    if (r.kind === "antes" && !range(r.hours, 1, 168)) return "Los recordatorios se envían de 1 a 168 horas antes";
+    else if (r.kind === "despues" && !range(r.days, 1, 60)) return "El seguimiento posterior va de 1 a 60 días después";
+    else if (r.kind === "reactivacion" && (!range(r.days, 30, 730) || !range(r.repeatDays, 7, 365))) return "Reactivación: de 30 a 730 días sin venir, y se repite cada 7 a 365 días";
+    else if (r.kind === "lead" && !range(r.hours, 1, 47)) return "El seguimiento de leads va de 1 a 47 horas";
+    else if (!["antes", "despues", "reactivacion", "lead"].includes(r.kind)) return "Tipo de regla inválido";
+    if (typeof r.text !== "string" || !r.text.trim() || r.text.length > 1024) return "Cada regla necesita un texto (hasta 1024 caracteres)";
+    if (r.textConfirmed !== undefined && (typeof r.textConfirmed !== "string" || r.textConfirmed.length > 1024)) return "Texto si ya confirmó: hasta 1024 caracteres";
+    if (!Array.isArray(r.buttons) || r.buttons.length > 3 || r.buttons.some((b: unknown) => typeof b !== "string" || !b.trim() || b.length > 20)) {
+      return "Hasta 3 botones por regla, de hasta 20 caracteres (límite de WhatsApp)";
+    }
+    if (!/^[a-z0-9_]{1,60}$/.test(r.template ?? "")) return "Nombre de plantilla inválido";
   }
   return null;
 }

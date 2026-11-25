@@ -97,6 +97,9 @@ export class BotEngine {
       const name = a.patientName.split(/\s+/)[0];
       return { text: `¡Gracias, ${name}! ✅ Su asistencia quedó confirmada para el *${human(toLocal(a.start))}*. ¡Lo esperamos!`, close: "turno_confirmado" };
     }
+    if (pending?.kind === "post_visit" && /^(todo bien|bien|muy bien|excelente|perfecto|gracias)$/.test(t)) {
+      return { text: "¡Qué bueno! 😊 Gracias por contarnos. Cuando necesite un control, escríbame y le busco un turno." };
+    }
     if ((pending?.kind === "followup" || pending?.kind === "reactivation") && /^(mas adelante|despues|ahora no|no gracias|no)$/.test(t)) {
       return { text: "¡Perfecto! Cuando quiera, escríbame y le busco un turno. 😊" };
     }
