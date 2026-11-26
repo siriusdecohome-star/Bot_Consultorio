@@ -440,3 +440,16 @@ details.card[open] summary { margin-bottom: 12px; }
 .switch input:focus-visible + span { outline: 2px solid var(--lime); outline-offset: 2px; }
 code { background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; font-size: 11.5px; }
 @media (max-width: 800px) { .rule .two { grid-template-columns: minmax(0, 1fr); } }
+
+/* ================= Recorrido guiado ================= */
+.tour { position: fixed; right: 20px; bottom: 20px; z-index: 40; width: min(380px, calc(100vw - 32px)); background: #0b1d16; border: 1px solid var(--accent);
+  border-radius: 16px; padding: 14px 16px; box-shadow: 0 16px 40px #000a; }
+.tour h3 { margin: 4px 0 8px; font-size: 16px; }
+.tour p { margin: 0 0 8px; font-size: 13.5px; line-height: 1.5; color: #d6e7dd; }
+.tour .tour-clarify { border-left: 3px solid var(--lime); padding-left: 10px; color: var(--text); }
+.tour .tour-status { color: var(--lime); font-size: 12.5px; min-height: 0; }
+.tour .tour-status:empty { display: none; }
+.tour-top { display: flex; justify-content: space-between; align-items: center; }
+.tour .btn-row { margin: 6px 0 0; justify-content: flex-end; }
+.tour-focus { outline: 2px solid var(--lime) !important; outline-offset: 3px; border-radius: 12px; transition: outline-color .2s; }
+@media (max-width: 800px) { .tour { right: 12px; left: 12px; bottom: 12px; width: auto; } }

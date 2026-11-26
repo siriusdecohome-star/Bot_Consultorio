@@ -140,6 +140,8 @@ export interface ClinicProfile {
   professionals: Professional[];
   /** Reglas de seguimiento y recordatorios, horario de silencio y lista de espera. */
   settings: ClinicSettings;
+  /** Clínica temporal de la demo pública: se borra a esta hora (ISO). */
+  expiresAt?: string | null;
 }
 
 export type Role = "admin" | "recepcion";

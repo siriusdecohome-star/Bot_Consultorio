@@ -328,3 +328,7 @@ body.rec #btn-rec:hover, body.rec #btn-remind:hover, body.rec #btn-followup:hove
   .metrics { width: calc(100vw - 32px); }
   .agenda-col { padding: 0 16px; }
 }
+
+/* Demo pública: sin controles técnicos ni pie de página; la única aclaración va en el subtítulo. */
+body.public-demo .foot, body.public-demo #btn-rec, body.public-demo .toggle:has(#tg-metrics), body.public-demo .clinic-pick { display: none !important; }
+body.public-demo #subtitle { color: #dfeee5; max-width: 640px; }

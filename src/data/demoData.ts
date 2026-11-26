@@ -62,7 +62,11 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
   const today = nowDt.startOf("day");
   const k = clinic.knowledge;
   const slot = clinic.slotMinutes;
-  const primary = clinic.primary;
+  // Las clínicas temporales de la demo pública copian la principal: mismos datos de ejemplo,
+  // con ids propios para no chocar con los de otra clínica.
+  const temp = clinic.id.startsWith("demo-");
+  const primary = clinic.primary || temp;
+  const idTag = clinic.primary ? "a" : temp ? clinic.id.slice(5) : "b";
   const reception = primary ? "recepcion@sonrisaclara.demo.test" : "recepcion@altamira.demo.test";
   const promoSource = primary ? "promo-noviembre" : "chequeo-familiar";
   const sources = [promoSource, promoSource, promoSource, "instagram", "google", null, null] as const;
@@ -70,7 +74,7 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
   // Consultas de los últimos días que reservan para la semana próxima: así la agenda futura tiene turnos.
   const nUpcoming = primary ? 16 : 9;
   const phoneBase = primary ? 5491100002000 : 59170002000;
-  const id = (p: string, n: number) => `demo_${primary ? "a" : "b"}_${p}${n}`;
+  const id = (p: string, n: number) => `demo_${idTag}_${p}${n}`;
   const iso = (dt: DateTime) => dt.toUTC().toISO()!;
   const address = k.address;
   const treatments = k.treatments.map((t) => t.name);

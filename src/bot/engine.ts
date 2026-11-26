@@ -53,6 +53,12 @@ function bookingOutcome(calls: ToolCallLog[]): CloseReason | null {
 export class BotEngine {
   /** Lista de espera de la clínica: recibe los horarios liberados y las respuestas a sus ofertas. */
   waitlist?: WaitlistService;
+  /**
+   * Tope de IA (demo pública): antes de cada mensaje se consulta; si no queda cupo, ese
+   * mensaje lo responde `fallback` (el modo sin IA) y la conversación sigue sin cortes.
+   */
+  aiBudget?: () => Promise<boolean>;
+  fallback?: LlmProvider;
 
   constructor(
     private provider: LlmProvider,
@@ -233,10 +239,14 @@ export class BotEngine {
       reminderNote = `El último mensaje del bot ofreció el horario liberado ${pending.slot} de la LISTA DE ESPERA. Si el paciente lo quiere, resérvelo con crear_cita.`;
     }
 
+    // Proveedor de este mensaje: el configurado, salvo que se haya agotado el tope de IA de la demo.
+    const provider = this.fallback && this.aiBudget && this.provider.name !== this.fallback.name && !(await this.aiBudget().catch(() => false))
+      ? this.fallback
+      : this.provider;
     // Si cambió el proveedor (p. ej. de mock a Claude), el historial nativo no es compatible: se reinicia.
-    if (conv.llmProvider !== this.provider.name) {
+    if (conv.llmProvider !== provider.name) {
       conv.llmState = [];
-      conv.llmProvider = this.provider.name;
+      conv.llmProvider = provider.name;
     }
 
     const execute = makeExecutor(ctx);
@@ -263,7 +273,7 @@ export class BotEngine {
     let toolCalls: ToolCallLog[] = [];
     let metric: TurnMetric | undefined;
     try {
-      const r = await this.provider.runTurn({
+      const r = await provider.runTurn({
         system: this.system,
         state: conv.llmState,
         userText,
@@ -276,8 +286,8 @@ export class BotEngine {
       conv.llmState = r.state;
       metric = {
         conversationId: conv.id,
-        provider: this.provider.name,
-        model: this.provider.model,
+        provider: provider.name,
+        model: provider.model,
         latencyMs: Math.round(performance.now() - t0),
         inputTokens: r.usage.inputTokens,
         outputTokens: r.usage.outputTokens,

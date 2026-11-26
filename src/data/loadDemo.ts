@@ -20,7 +20,7 @@ export async function loadExampleDocument(store: Store): Promise<string | null> 
 }
 
 /** Semilla distinta por clínica: datos distintos pero reproducibles. */
-export const demoSeed = (c: ClinicProfile) => (c.primary ? 7 : 11);
+export const demoSeed = (c: ClinicProfile) => (c.primary || c.id.startsWith("demo-") ? 7 : 11);
 
 /**
  * Crea en Google Calendar los turnos de ejemplo próximos de los profesionales que usan

@@ -236,6 +236,13 @@ export class SupabaseStore implements Store {
     }));
   }
 
+  async countRealTurnsSince(since: string, clinicPrefix: string) {
+    const r = await this.from("turn_metrics").select("id", { count: "exact", head: true })
+      .like("clinic_id", `${clinicPrefix}%`).neq("provider", "mock").not("model", "like", "%(simulado)%").gte("at", since);
+    if (r.error) throw new Error(`Supabase: ${r.error.message}`);
+    return r.count ?? 0;
+  }
+
   async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots" | "professionalId"> & { professionalId?: string | null }) {
     return toWait(check(await this.from("waitlist").insert({
       id: newId("esp"), clinic_id: this.clinicId, patient_id: e.patientId, patient_name: e.patientName, treatment: e.treatment,

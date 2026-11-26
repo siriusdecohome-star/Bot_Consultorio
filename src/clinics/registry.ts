@@ -28,6 +28,7 @@ export function rowToClinic(r: any): ClinicProfile {
     knowledge: r.knowledge as ClinicKnowledge,
     professionals: [],
     settings: withDefaults(r.settings),
+    expiresAt: r.expires_at ?? null,
   };
 }
 
@@ -35,7 +36,7 @@ export function clinicToRow(c: ClinicProfile) {
   return {
     id: c.id, name: c.name, timezone: c.timezone, slot_minutes: c.slotMinutes,
     whatsapp_phone_number_id: c.whatsappPhoneNumberId, calendar_tag: c.calendarTag,
-    is_primary: c.primary, calendar_color: c.calendarColor, knowledge: c.knowledge, settings: c.settings,
+    is_primary: c.primary, calendar_color: c.calendarColor, knowledge: c.knowledge, settings: c.settings, expires_at: c.expiresAt ?? null,
   };
 }
 
@@ -87,13 +88,19 @@ export interface RuntimeOptions {
   outbox?: WebOutbox;
   /** Crea el cliente de WhatsApp para el número de una clínica (null = no se puede enviar). */
   whatsappFor?: (phoneNumberId: string) => WhatsAppSender | null;
+  /** false = no cambia la clínica por defecto (al sumar una clínica temporal de la demo). */
+  setDefault?: boolean;
+  /** Tope de IA por clínica (demo pública): si devuelve false, ese mensaje lo responde el modo sin IA. */
+  aiBudgetFor?: (profile: ClinicProfile) => (() => Promise<boolean>) | undefined;
+  /** Proveedor de respaldo cuando se agota el tope de IA. */
+  fallbackProvider?: LlmProvider;
 }
 
 /** Arma motor, agenda, avisos y recordatorios de cada clínica sobre los servicios compartidos. */
 export function buildRuntimes(o: RuntimeOptions): Map<string, ClinicRuntime> {
   const map = new Map<string, ClinicRuntime>();
   const primary = o.clinics.find((c) => c.primary) ?? o.clinics[0];
-  if (primary) setDefaultClinic(primary);
+  if (primary && o.setDefault !== false) setDefaultClinic(primary);
   for (const profile of o.clinics) {
     const store = o.services.store.forClinic(profile.id);
     const calendar = new ClinicCalendar(o.services.calendar, profile);
@@ -102,6 +109,11 @@ export function buildRuntimes(o: RuntimeOptions): Map<string, ClinicRuntime> {
     const bot = new BotEngine(o.provider, store, calendar, o.clock, profile);
     const waitlist = new WaitlistService(store, notifier, calendar, o.clock, profile);
     bot.waitlist = waitlist;
+    const budget = o.aiBudgetFor?.(profile);
+    if (budget && o.fallbackProvider) {
+      bot.aiBudget = budget;
+      bot.fallback = o.fallbackProvider;
+    }
     map.set(profile.id, {
       profile, store, calendar, notifier, whatsapp, bot, waitlist,
       reminders: new ReminderService(store, notifier, o.clock, profile),

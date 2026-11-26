@@ -362,6 +362,13 @@ $("#clock").textContent = hhmm();
     const cal = cfg.calendar === "google" ? "Google Calendar" : "agenda en memoria";
     $("#agenda-source").innerHTML = `<span class="live-dot"></span> ${cal} · se actualiza con cada reserva`;
     $("#subtitle").textContent = `Demo con datos ficticios · IA: ${cfg.provider} · base: ${cfg.store}`;
+    // Demo pública (clínica temporal o recorrido): una sola aclaración, sin detalles técnicos.
+    if (cfg.demo || params.get("recorrido") === "1") {
+      document.body.classList.add("public-demo");
+      $("#subtitle").textContent = "En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.";
+      $("#tg-metrics").checked = false;
+      $("#metrics").classList.add("hidden");
+    }
   } catch {}
   if (params.get("modo") === "grabacion") $("#btn-rec").click();
   await newSession();

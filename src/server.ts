@@ -15,6 +15,9 @@ import { buildRuntimes, loadClinics, runtimeByPhoneNumberId, type ClinicRuntime 
 import { withClinic } from "./clinics/context.js";
 import { SupabaseStore } from "./services/supabaseStore.js";
 import { closeIdleConversations } from "./bot/conversationState.js";
+import { receiveMessage } from "./channels/inbound.js";
+import { DemoLimitError, DemoService, isTempClinic } from "./demo/tempClinics.js";
+import { MockProvider } from "./llm/mock.js";
 
 /**
  * Servidor HTTP: simulador web, webhook de WhatsApp, panel del consultorio y su API.
@@ -44,15 +47,25 @@ const wa = config.whatsapp;
 const canSendWhatsApp = Boolean(wa.token);
 const outbox = new WebOutbox();
 const { WhatsAppCloudClient } = await import("./channels/whatsappClient.js");
-const runtimes = buildRuntimes({
+const auth = createAuth(services.storeKind);
+// Demo pública: clínicas temporales por visita (las que ya existían en la base se cargan como el resto).
+const fallback = new MockProvider("tope de IA de la demo");
+const runtimes = new Map<string, ClinicRuntime>();
+const demo = new DemoService({
+  services, runtimes, provider, fallback, clock: systemClock, outbox, auth,
+  template: clinics.find((c) => c.primary && !isTempClinic(c)) ?? clinics[0]!,
+});
+for (const [id, rt] of buildRuntimes({
   services, clinics, provider, clock: systemClock, outbox,
   whatsappFor: (phoneNumberId) => (canSendWhatsApp ? new WhatsAppCloudClient(wa.token, phoneNumberId) : null),
-});
-const primary = [...runtimes.values()].find((r) => r.profile.primary) ?? [...runtimes.values()][0]!;
+  aiBudgetFor: (p) => demo.budgetFor(p), fallbackProvider: fallback,
+})) runtimes.set(id, rt);
+const primary = [...runtimes.values()].find((r) => r.profile.primary && !isTempClinic(r.profile)) ?? [...runtimes.values()][0]!;
 
 // Agenda en memoria: cada clínica arranca con algunos turnos ocupados de ejemplo.
 if (services.calendarKind === "memoria") {
   for (const rt of runtimes.values()) {
+    if (isTempClinic(rt.profile)) continue;
     await withClinic(rt.profile, () => seedCalendar(rt.calendar, systemClock, rt.profile.primary ? "a" : "b"));
   }
 }
@@ -63,8 +76,6 @@ if (services.storeKind === "memoria" && process.env.DEMO_DATA !== "false" && !co
   for (const rt of runtimes.values()) await loadDemoMemory(rt.store, rt.calendar, rt.profile, systemClock());
   await loadExampleDocument(primary.store);
 }
-
-const auth = createAuth(services.storeKind);
 
 const app = express();
 // Documentos de la zona de aprendizaje: llegan en base64, con un límite mayor (8 MB de archivo).
@@ -144,6 +155,23 @@ app.post("/panel/logout", (_req, res) => {
   res.setHeader("Set-Cookie", clearCookie);
   res.redirect(303, "/panel");
 });
+// --- Demo pública: «Entrar al demo» crea una clínica temporal y entra como admin, sin contraseña ---
+app.get(["/demo", "/demo/"], (_req, res) => res.sendFile(path.join(ROOT, "public", "demo.html")));
+app.get("/api/demo/status", (_req, res) => res.json({ enabled: demo.enabled, hours: config.demo.hours }));
+app.post("/api/demo/start", async (req, res) => {
+  try {
+    // Detrás del túnel o de la plataforma, la IP real del visitante viene en un encabezado.
+    const ip = req.header("cf-connecting-ip") ?? req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? req.ip ?? "?";
+    const { clinicId, session } = await demo.start(ip, isSecure(req));
+    if (session.setCookie) res.setHeader("Set-Cookie", session.setCookie);
+    res.json({ ok: true, clinicId, panel: `/panel?recorrido=1#bandeja` });
+  } catch (err) {
+    if (err instanceof DemoLimitError) return res.status(429).json({ error: err.message });
+    console.error("[demo]", err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 app.get("/panel/:file", async (req, res) => {
   const file = String(req.params.file);
   const isPublic = file === "panel.css"; // la hoja de estilos la usa también la pantalla de ingreso
@@ -184,6 +212,9 @@ if (config.reminders.enabled) {
 
 // --- Cierre automático de conversaciones sin movimiento (se reabren si el paciente vuelve a escribir) ---
 const closeIdle = async () => {
+  // Clínicas temporales vencidas de la demo pública: se borran con todos sus datos.
+  const gone = await demo.cleanup().catch((err) => { console.error("[demo]", (err as Error).message); return 0; });
+  if (gone) console.log(`[demo] ${gone} clínica(s) temporal(es) vencida(s) borrada(s)`);
   for (const rt of runtimes.values()) {
     try {
       const n = await closeIdleConversations(rt.store, new Date(), config.inbox.idleHours);
@@ -245,7 +276,10 @@ app.get("/api/config", clinicRoute((rt, _req, res) => {
   res.json({
     clinicId: rt.profile.id,
     clinic: rt.profile.name,
-    clinics: [...runtimes.values()].map((r) => ({ id: r.profile.id, name: r.profile.name, whatsapp: Boolean(r.profile.whatsappPhoneNumberId) })),
+    // Las clínicas temporales de otros visitantes no se listan.
+    clinics: [...runtimes.values()].filter((r) => !isTempClinic(r.profile) || r.profile.id === rt.profile.id)
+      .map((r) => ({ id: r.profile.id, name: r.profile.name, whatsapp: Boolean(r.profile.whatsappPhoneNumberId) })),
+    demo: isTempClinic(rt.profile),
     provider: rt.bot.providerName,
     store: services.storeKind,
     calendar: services.calendarKind,
@@ -268,11 +302,9 @@ app.post("/api/chat", clinicRoute(async (rt, req, res) => {
     return res.status(429).json({ error: "Demasiados mensajes seguidos. Espere unos minutos y vuelva a intentar." });
   }
   try {
-    const r = await rt.bot.handle({
-      channel: "web",
-      userId: sessionId,
-      text: text.trim(),
-      source: typeof source === "string" && source ? source.slice(0, 40) : null,
+    // Misma entrada que el webhook de WhatsApp (channels/inbound.ts); solo cambia el canal.
+    const r = await receiveMessage(rt.bot, {
+      channel: "web", from: sessionId, text: text.trim(), source: typeof source === "string" && source ? source.slice(0, 40) : null,
     });
     res.json({
       messages: r.messages,

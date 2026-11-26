@@ -155,6 +155,10 @@ alter table conversations add column if not exists closed_reason text;
 alter table clinics add column if not exists settings jsonb;          -- reglas, horario de silencio, lista de espera
 alter table appointments add column if not exists reminders_sent text[] not null default '{}';
 
+-- Demo pública (etapa 4): clínicas temporales por visita, que se borran solas.
+alter table clinics add column if not exists expires_at timestamptz;   -- null = clínica real
+alter table clinics add column if not exists demo_owner text;          -- huella (hash) de la IP que la creó, para el límite diario
+
 -- ============================================================
 -- Multidoctores: profesionales, excepciones de agenda y doble reserva por profesional.
 -- ============================================================

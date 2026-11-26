@@ -226,6 +226,8 @@ export interface Store {
 
   logMetric(m: TurnMetric): Promise<void>;
   listMetrics(): Promise<TurnMetric[]>;
+  /** Mensajes respondidos con IA real (no el modo sin IA ni las métricas simuladas de ejemplo) desde `since`, en las clínicas cuyo id empieza con `clinicPrefix` (de todas las clínicas). */
+  countRealTurnsSince(since: string, clinicPrefix: string): Promise<number>;
 
   // Lista de espera
   addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots" | "professionalId"> & { professionalId?: string | null }): Promise<WaitlistEntry>;
@@ -400,6 +402,10 @@ export class InMemoryStore implements Store {
   async listMetrics() {
     return this.data.metrics.filter((m) => this.mine(m)).map((m) => strip(m));
   }
+  async countRealTurnsSince(since: string, clinicPrefix: string) {
+    // Las métricas simuladas de los datos de ejemplo no cuentan: no gastaron IA.
+    return this.data.metrics.filter((m) => m.clinicId.startsWith(clinicPrefix) && m.provider !== "mock" && !m.model.includes("(simulado)") && m.at >= since).length;
+  }
 
   async addWaitlist(e: Omit<WaitlistEntry, "id" | "createdAt" | "status" | "offeredSlot" | "offeredAt" | "declinedSlots" | "professionalId"> & { professionalId?: string | null }) {
     const x: Owned<WaitlistEntry> = { ...e, professionalId: e.professionalId ?? null, id: id("esp"), status: "esperando", offeredSlot: null, offeredAt: null, declinedSlots: [], createdAt: this.now(), clinicId: this.clinicId };
@@ -441,6 +447,18 @@ export class InMemoryStore implements Store {
   }
   async deleteException(eid: string) {
     this.data.exceptions = this.data.exceptions.filter((x) => !(this.mine(x) && x.id === eid));
+  }
+
+  /** Borra todos los datos de una clínica (demo temporal vencida). Solo en memoria; Supabase lo hace en cascada. */
+  purgeClinic(clinicId: string) {
+    const d = this.data;
+    const keep = <T extends { clinicId: string }>(xs: T[]) => xs.filter((x) => x.clinicId !== clinicId);
+    for (const m of [d.patients, d.conversations, d.appointments] as Array<Map<string, { clinicId: string }>>) {
+      for (const [k, v] of m) if (v.clinicId === clinicId) m.delete(k);
+    }
+    d.handoffs = keep(d.handoffs); d.metrics = keep(d.metrics); d.documents = keep(d.documents); d.chunks = keep(d.chunks);
+    d.waitlist = keep(d.waitlist); d.professionals = keep(d.professionals); d.exceptions = keep(d.exceptions);
+    d.knowledge.delete(clinicId);
   }
 
   /** Carga datos de ejemplo ya armados (ids y fechas propios) en esta clínica. Solo en memoria. */

@@ -19,7 +19,7 @@ Cada clínica tiene sus datos separados en **Supabase con RLS** y un **panel** p
 
 ## Contenido
 
-[Qué hace](#qué-hace) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Multidoctores y calendarios](#multidoctores-y-calendarios) · [Seguimientos y recordatorios](#seguimientos-y-recordatorios) · [Multiempresa y seguridad](#multiempresa-y-seguridad) · [Stack y decisiones](#stack-y-decisiones) · [Instalación](#instalación-windows--powershell) · [Variables de entorno](#variables-de-entorno) · [Entorno de pruebas y producción](#entorno-de-pruebas-y-producción) · [Uso](#uso) · [Documentos y búsqueda](#documentos-y-búsqueda) · [Pruebas](#pruebas) · [Costos](#costos) · [Datos de ejemplo](#datos-de-ejemplo) · [Despliegue](#despliegue) · [Estructura](#estructura) · [Seguridad y privacidad](#seguridad-y-privacidad)
+[Qué hace](#qué-hace) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Multidoctores y calendarios](#multidoctores-y-calendarios) · [Seguimientos y recordatorios](#seguimientos-y-recordatorios) · [Demo pública y recorrido](#demo-pública-y-recorrido-guiado) · [Multiempresa y seguridad](#multiempresa-y-seguridad) · [Stack y decisiones](#stack-y-decisiones) · [Instalación](#instalación-windows--powershell) · [Variables de entorno](#variables-de-entorno) · [Entorno de pruebas y producción](#entorno-de-pruebas-y-producción) · [Uso](#uso) · [Documentos y búsqueda](#documentos-y-búsqueda) · [Pruebas](#pruebas) · [Costos](#costos) · [Datos de ejemplo](#datos-de-ejemplo) · [Despliegue](#despliegue) · [Estructura](#estructura) · [Seguridad y privacidad](#seguridad-y-privacidad)
 
 ## Qué hace
 
@@ -178,6 +178,17 @@ Pestaña **Seguimientos** del panel (edita el admin; recepción la ve). Las regl
 - **Horario de silencio** (por defecto de 21:00 a 08:00): los avisos esperan a que termine. Las ofertas de la lista de espera no esperan, porque el horario se puede perder. La duración de esas ofertas también se ajusta por clínica.
 - **WhatsApp real:** si pasaron más de 24 h desde el último mensaje del paciente, el mensaje sale con la plantilla de Meta de la regla (`recordatorio_turno`, `seguimiento_post_turno`, `reactivacion_paciente`, `seguimiento_promo`): llega el texto de la plantilla con los datos del paciente, no el texto editado. Las plantillas se crean con `npm run wa:templates` y su estado se ve con `npm run wa:templates -- --status`.
 
+## Demo pública y recorrido guiado
+
+- **`/demo`**: página de presentación con el botón **Entrar al demo**. Cada visita recibe su propia **clínica temporal** (copia de la clínica de ejemplo con 30 días de datos ficticios) y entra al panel como admin, sin contraseña visible. Solo ve lo suyo y todo se borra solo a las `DEMO_HOURS` (24 h).
+  - **Sesión:** con Supabase, un usuario **anónimo** de Supabase Auth con rol admin solo en su clínica, así la base lo aísla con las mismas políticas RLS que a cualquier usuario. Hay que activar *Allow anonymous sign-ins* en Supabase (Authentication → Sign In / Providers). En memoria, un visitante temporal.
+  - **Sin efectos afuera:** sus profesionales usan la agenda interna (nunca escribe en Google Calendar) y no tiene número de WhatsApp.
+  - **Límites:** demos por IP por día (`DEMO_PER_IP_PER_DAY`) y demos abiertas a la vez (`DEMO_MAX_ACTIVE`). Las vencidas se borran en la revisión periódica, con sus datos (en cascada) y sus usuarios anónimos.
+  - **IA real con tope:** `DEMO_AI_PER_VISIT` mensajes por visita (20) y `DEMO_AI_DAILY` por día entre todas (300). Al agotarse, ese mensaje lo responde el modo sin IA y la conversación sigue sin cortes. Las clínicas reales no tienen tope.
+- **Recorrido guiado** en el panel, paso a paso: bandeja, conversación, ficha, agenda, profesionales, seguimientos, aprendizaje y estadísticas. Abre el chat en otra pestaña y detecta cuándo llega el primer mensaje para abrir esa conversación.
+- **El chat de la demo entra por el mismo camino que WhatsApp:** el webhook y el simulador llaman a la misma función ([src/channels/inbound.ts](src/channels/inbound.ts)), con el mismo motor, las mismas herramientas y la misma base; solo cambia el canal. Por eso lo que se prueba en el simulador es lo que pasa por WhatsApp, y la conversación aparece en la bandeja del panel.
+- En la demo, el chat muestra una sola aclaración: «En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.»
+
 ## Multiempresa y seguridad
 
 - **Tablas:** `clinics` guarda el perfil y el conocimiento de cada clínica; `clinic_members` vincula usuarios de Supabase Auth con su clínica y su rol (`admin` o `recepcion`). Todas las demás tablas llevan `clinic_id`.
@@ -258,6 +269,8 @@ Todas van en `.env` (local) o en el panel del proveedor (servidor). Nunca en el 
 | `REMINDERS_*`, `FOLLOWUP_AFTER_HOURS` | Recordatorios y seguimiento | Activados, cada 60 s, a las 20 h |
 | `WAITLIST_OFFER_MINUTES` | Cuánto se guarda un horario ofrecido | 30 |
 | `WHATSAPP_TEMPLATE_RESCHEDULE`, `WHATSAPP_TEMPLATE_POST_VISIT` | Plantillas de reprogramación y de seguimiento posterior | `turno_reprogramar`, `seguimiento_post_turno` |
+| `PUBLIC_DEMO`, `DEMO_HOURS`, `DEMO_MAX_ACTIVE`, `DEMO_PER_IP_PER_DAY` | Demo pública con clínica temporal por visita | `true`, 24, 50, 3 |
+| `DEMO_AI_PER_VISIT`, `DEMO_AI_DAILY` | Tope de IA real en la demo (luego, modo sin IA) | 20, 300 |
 | `CONVERSATION_IDLE_HOURS` | Horas sin mensajes para cerrar una conversación (se reabre si el paciente escribe) | 24 |
 | `REACTIVATION_ENABLED`, `REACTIVATION_MONTHS`, `REACTIVATION_MAX_PER_SWEEP` | Reactivación | Activada, 6 meses, 5 por revisión |
 | `PRIVACY_NOTICE` | `inline`, `separate` u `off` | `inline` |
@@ -351,6 +364,7 @@ npm test
 | `test:waitlist` | 10 | Lista de espera (ofrecer, aceptar, rechazar, vencer, horario tomado) y reactivación |
 | `test:doctors` | 14 | Doble reserva por profesional (incluida la superposición con duraciones distintas), «el primero disponible», horario por profesional, excepciones (día, franja, vacaciones) con turnos afectados y aviso por el bot, reprogramación desde el aviso, flujo especialidad → profesional → horario, lista de espera por profesional y edición desde el panel |
 | `test:followups` | 12 | Reglas activadas y desactivadas (72 h, 24 h, 2 h, 1 h, después del turno, reactivación, leads), una sola regla por turno sin duplicados, reserva dentro de la ventana, horario de silencio, textos editados y edición desde el panel |
+| `test:demo` | 8 | Clínica temporal con datos y sesión de admin solo de esa clínica, aislamiento, simulador por la misma entrada que WhatsApp sin tocar Google Calendar, tope de IA por visita y diario con paso al modo sin IA, límites y borrado al vencer |
 | `test:inbox` | 23 | Cada estado de la bandeja y sus transiciones, cierre automático y reapertura, contadores coherentes, ficha editable, nombre real con herramienta, menú con botones o lista, horarios editados que limitan los turnos ofrecidos, datos de ejemplo |
 | `test:cases` | 8 | Los casos de calidad, con tiempo de respuesta y costo → [reports/test-results.md](reports/test-results.md) |
 | `test:integration` | 8 pasos | Contra Supabase y Google Calendar reales: reserva, doble reserva, índice por clínica, búsqueda de documentos y **RLS** con la sesión de una recepcionista |

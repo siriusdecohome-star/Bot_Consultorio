@@ -37,7 +37,14 @@ export interface AuthBackend {
   readonly kind: "supabase" | "memoria";
   login(email: string, password: string, secure: boolean): Promise<AuthResult | null>;
   fromRequest(req: Request, secure: boolean): Promise<AuthResult | null>;
+  /** Demo pública: sesión de visitante, admin SOLO de su clínica temporal, sin contraseña. */
+  demoLogin(clinicId: string, secure: boolean): Promise<AuthResult>;
+  /** Borra los visitantes de una clínica temporal vencida. */
+  forgetDemo(clinicId: string): Promise<void>;
 }
+
+/** Nombre que se muestra para el visitante de la demo pública. */
+export const DEMO_VISITOR = "Visitante de la demo";
 
 const COOKIE = "panel_sesion";
 const SESSION_H = 12;
@@ -75,6 +82,23 @@ export const clearCookie = `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-A
 
 export class MemoryAuth implements AuthBackend {
   readonly kind = "memoria" as const;
+  /** Visitantes de la demo: id → clínica temporal. */
+  private visitors = new Map<string, string>();
+
+  async demoLogin(clinicId: string, secure: boolean) {
+    const id = `visitante:${randomBytes(8).toString("hex")}`;
+    this.visitors.set(id, clinicId);
+    const exp = Date.now() + SESSION_H * 3600_000;
+    return { user: this.visitor(id, clinicId), setCookie: encodeCookie({ visitor: id, exp }, secure) };
+  }
+
+  async forgetDemo(clinicId: string) {
+    for (const [id, c] of this.visitors) if (c === clinicId) this.visitors.delete(id);
+  }
+
+  private visitor(id: string, clinicId: string): PanelUser {
+    return { id, email: DEMO_VISITOR, memberships: [{ clinicId, role: "admin" }] };
+  }
 
   async login(email: string, password: string, secure: boolean) {
     const u = demoUsers.find((x) => x.email === email.trim().toLowerCase());
@@ -85,9 +109,13 @@ export class MemoryAuth implements AuthBackend {
   }
 
   async fromRequest(req: Request) {
-    const c = readCookie<{ email: string; exp: number }>(req);
+    const c = readCookie<{ email?: string; visitor?: string; exp: number }>(req);
     if (!c || c.exp < Date.now()) return null;
-    return demoUsers.some((u) => u.email === c.email) ? { user: this.toUser(c.email) } : null;
+    if (c.visitor) {
+      const clinicId = this.visitors.get(c.visitor);
+      return clinicId ? { user: this.visitor(c.visitor, clinicId) } : null;
+    }
+    return c.email && demoUsers.some((u) => u.email === c.email) ? { user: this.toUser(c.email) } : null;
   }
 
   private toUser(email: string): PanelUser {
@@ -111,7 +139,34 @@ export class SupabaseAuth implements AuthBackend {
   /** Usuario validado por token, para no consultar Supabase Auth en cada pedido. */
   private cache = new Map<string, { user: PanelUser; until: number }>();
 
-  constructor(private url: string, private publishableKey: string) {}
+  constructor(private url: string, private publishableKey: string, private secretKey = "") {}
+
+  /**
+   * Visitante de la demo: usuario ANÓNIMO de Supabase Auth (hay que activar «Allow anonymous
+   * sign-ins» en Supabase) con rol admin solo en su clínica temporal. La base lo aísla con
+   * las mismas políticas RLS que a cualquier usuario.
+   */
+  async demoLogin(clinicId: string, secure: boolean) {
+    const { data, error } = await this.client().auth.signInAnonymously();
+    if (error || !data.session || !data.user) {
+      throw new Error(/anonymous/i.test(error?.message ?? "")
+        ? "Falta activar los inicios de sesión anónimos en Supabase (Authentication → Sign In / Providers → Allow anonymous sign-ins)."
+        : `No se pudo crear la sesión de la demo: ${error?.message ?? "sin sesión"}`);
+    }
+    const admin = createClient(this.url, this.secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const m = await admin.from("clinic_members").insert({ user_id: data.user.id, clinic_id: clinicId, role: "admin" });
+    if (m.error) throw new Error(`No se pudo asignar la clínica de la demo: ${m.error.message}`);
+    const r = await this.fromSession(data.session.access_token, data.session.refresh_token, data.session.expires_at, secure);
+    if (!r) throw new Error("No se pudo validar la sesión de la demo");
+    return r;
+  }
+
+  /** Borra los usuarios anónimos de una clínica temporal (sus membresías se borran en cascada). */
+  async forgetDemo(clinicId: string) {
+    const admin = createClient(this.url, this.secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data } = await admin.from("clinic_members").select("user_id").eq("clinic_id", clinicId);
+    for (const row of data ?? []) await admin.auth.admin.deleteUser(row.user_id).catch(() => undefined);
+  }
 
   private client(accessToken?: string) {
     return createClient(this.url, this.publishableKey, {
@@ -157,7 +212,7 @@ export class SupabaseAuth implements AuthBackend {
     if (e2) throw new Error(`Supabase: ${e2.message}`);
     const user: PanelUser = {
       id: data.user.id,
-      email: data.user.email ?? "",
+      email: data.user.email || (data.user.is_anonymous ? DEMO_VISITOR : ""),
       accessToken: at,
       memberships: (rows ?? []).map((r: any) => ({ clinicId: r.clinic_id, role: r.role })),
     };
@@ -170,7 +225,7 @@ export class SupabaseAuth implements AuthBackend {
 export function createAuth(storeKind: "supabase" | "memoria"): AuthBackend {
   if (storeKind === "supabase") {
     if (!config.supabase.publishableKey) throw new Error("Falta SUPABASE_PUBLISHABLE_KEY en el .env (la usa el login del panel).");
-    return new SupabaseAuth(config.supabase.url, config.supabase.publishableKey);
+    return new SupabaseAuth(config.supabase.url, config.supabase.publishableKey, config.supabase.secretKey);
   }
   return new MemoryAuth();
 }

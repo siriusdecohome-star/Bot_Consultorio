@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type Request } from "express";
 import type { BotEngine } from "../bot/engine.js";
 import type { WhatsAppSender } from "./whatsappClient.js";
+import { deliverWhatsApp, receiveMessage } from "./inbound.js";
 
 /**
  * Adaptador del canal WhatsApp: traduce los avisos (webhooks) de Meta a
@@ -138,16 +139,9 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
       return;
     }
     log(`← ${mask(m.from)}: ${m.text.slice(0, 80)}`);
-    const reply = await bot.handle({
-      channel: "whatsapp", userId: `+${m.from}`, text: m.text, source: m.source, profileName: m.name,
-    });
-    for (const [i, text] of reply.messages.entries()) {
-      const ui = i === reply.messages.length - 1 ? reply.interactive : undefined;
-      if (ui?.buttons?.length) await sender.sendButtons(m.from, text, ui.buttons.map((t, j) => ({ id: `menu${j}`, title: t })));
-      else if (ui?.list && sender.sendList) await sender.sendList(m.from, text, ui.list.button, ui.list.rows);
-      else if (ui?.list) await sender.sendText(m.from, `${text}\n\n${ui.list.rows.map((r, j) => `${j + 1}. ${r.title}`).join("\n")}`);
-      else await sender.sendText(m.from, text);
-    }
+    // Misma entrada que el simulador (channels/inbound.ts); solo cambia el canal.
+    const reply = await receiveMessage(bot, { channel: "whatsapp", from: `+${m.from}`, text: m.text, source: m.source, profileName: m.name });
+    await deliverWhatsApp(sender, m.from, reply);
     const ms = reply.metric ? `${reply.metric.latencyMs} ms` : "";
     log(`→ ${mask(m.from)}: ${reply.messages.length} mensaje(s) ${ms}`);
   }

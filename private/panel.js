@@ -1438,3 +1438,93 @@ async function init() {
   }, 10000);
 }
 init().catch((e) => ($("#updated").textContent = `error: ${e.message}`));
+
+// =====================================================================
+// Recorrido guiado (demo pública): paso a paso por cada sección, con el
+// simulador como chat. Se activa con ?recorrido=1 y recuerda el paso.
+// =====================================================================
+const CLARIFY = "En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.";
+const TOUR = [
+  { view: "bandeja", title: "Bienvenido a tu clínica de prueba", text: `Sos administrador de una copia de la clínica de ejemplo, con 30 días de datos. Nadie más la ve y se borra sola en 24 horas.\n\n${CLARIFY}`, action: "chat" },
+  { view: "bandeja", target: ".ib-list", title: "1. Escribile al asistente", text: "En la pestaña del chat escribí «Hola» o tocá «📅 Sacar un turno». Tu conversación aparece en esta bandeja en unos segundos.", wait: true, action: "chat" },
+  { view: "bandeja", target: ".ib-chat", title: "2. La conversación", text: "Cada mensaje dice quién lo escribió. Probá «Tomar conversación» y respondé: tu mensaje llega a la pestaña del chat y el bot deja de contestar. «Devolver al bot» lo reactiva." },
+  { view: "bandeja", target: "#profile-pane", title: "3. La ficha del paciente", text: "Corregí el nombre real, agregá una etiqueta o una nota y guardá: el cambio se ve en el chat, la agenda y la lista de pacientes." },
+  { view: "agenda", target: "#cal", title: "4. La agenda", text: "Si reservaste en el chat, tu turno está acá. Pasá a «Día» para ver una columna por profesional y tocá un turno para confirmarlo o cancelarlo." },
+  { view: "profesionales", target: "#exc-form", title: "5. Profesionales y ausencias", text: "Cargá una ausencia de un profesional: el panel lista los turnos afectados y te ofrece avisarles por el bot para reprogramar." },
+  { view: "seguimientos", target: "#fu-rules", title: "6. Seguimientos", text: "Recordatorios antes del turno, seguimiento después y reactivación. Activá una regla o cambiá un texto y guardá." },
+  { view: "aprendizaje", target: "#kb-form", title: "7. Enseñarle cosas nuevas", text: "Cambiá un precio, guardá y preguntalo en el probador de la derecha: el asistente ya responde con el dato nuevo." },
+  { view: "estadisticas", target: "#stats-kpis", title: "8. Estadísticas", text: "Consultas, conversión y resolución del asistente de los 30 días de ejemplo. En Costos está el gasto de la IA por conversación." },
+  { view: "bandeja", title: "¡Listo!", text: "Seguí probando lo que quieras: todo funciona igual que en una clínica real. Tu copia se borra sola en 24 horas.", last: true },
+];
+const tour = { step: -1, since: null, timer: null };
+const tourSave = () => { try { sessionStorage.setItem("recorrido", JSON.stringify({ step: tour.step, since: tour.since })); } catch {} };
+
+function tourOpenChat() {
+  window.open(`/?clinica=${encodeURIComponent(state.clinic ?? "")}&recorrido=1`, "chat-demo");
+}
+function tourRender() {
+  clearInterval(tour.timer);
+  for (const el of $$(".tour-focus")) el.classList.remove("tour-focus");
+  let card = $("#tour");
+  if (tour.step < 0 || tour.step >= TOUR.length) { card?.remove(); return; }
+  const s = TOUR[tour.step];
+  if (state.view !== s.view) showView(s.view);
+  if (!card) {
+    card = document.createElement("aside");
+    card.id = "tour";
+    card.className = "tour";
+    card.setAttribute("role", "dialog");
+    card.setAttribute("aria-label", "Recorrido guiado");
+    document.body.append(card);
+  }
+  card.innerHTML = `
+    <div class="tour-top"><span class="hint">Recorrido · ${tour.step + 1} de ${TOUR.length}</span><button class="icon" data-tour="close" aria-label="Cerrar recorrido">✕</button></div>
+    <h3>${esc(s.title)}</h3>
+    ${s.text.split("\n\n").map((p) => `<p${p === CLARIFY ? ' class="tour-clarify"' : ""}>${esc(p)}</p>`).join("")}
+    <p class="tour-status" id="tour-status"></p>
+    <div class="btn-row">
+      ${tour.step > 0 ? '<button class="btn ghost small" data-tour="prev">Anterior</button>' : ""}
+      ${s.action === "chat" ? '<button class="btn ghost small" data-tour="chat">Abrir el chat ↗</button>' : ""}
+      <button class="btn small" data-tour="${s.last ? "close" : "next"}">${s.last ? "Terminar recorrido" : tour.step === 0 ? "Empezar" : "Siguiente"}</button>
+    </div>`;
+  setTimeout(() => { if (s.target) $(s.target)?.classList.add("tour-focus"); }, 400);
+  // Paso 1: espera a que llegue la conversación del chat simulado y la abre.
+  if (s.wait) {
+    const check = async () => {
+      try {
+        const d = await api("/conversations?filtro=todas");
+        const mine = d.conversations.find((c) => c.channel === "web" && c.lastAt >= tour.since);
+        if (mine) {
+          clearInterval(tour.timer);
+          $("#tour-status").textContent = "✅ Llegó tu conversación: ya la abrimos.";
+          await loadInbox();
+          await openConv(mine.id);
+        } else $("#tour-status").textContent = "Esperando tu primer mensaje…";
+      } catch {}
+    };
+    check();
+    tour.timer = setInterval(check, 3000);
+  }
+  tourSave();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tour]");
+  if (!b) return;
+  const a = b.dataset.tour;
+  if (a === "chat") return tourOpenChat();
+  if (a === "close") { tour.step = -1; tourSave(); try { sessionStorage.removeItem("recorrido"); } catch {} return tourRender(); }
+  if (a === "next" && tour.step === 0) tourOpenChat();
+  tour.step += a === "prev" ? -1 : 1;
+  tourRender();
+});
+(function tourStart() {
+  const params = new URLSearchParams(location.search);
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem("recorrido") ?? "null"); } catch {}
+  if (params.get("recorrido") !== "1" && !saved) return;
+  tour.step = Math.max(0, saved?.step ?? 0);
+  tour.since = saved?.since ?? new Date(Date.now() - 60_000).toISOString();
+  if (params.has("recorrido")) { params.delete("recorrido"); history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`); }
+  // Espera a que el panel cargue la clínica antes de mostrar el primer paso.
+  const wait = setInterval(() => { if (state.clinic) { clearInterval(wait); tourRender(); } }, 200);
+})();
