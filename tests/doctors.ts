@@ -202,6 +202,18 @@ try {
     assert.match(r.messages.join(" "), /Dr\. Martín Ríos/);
   });
 
+  await check("Chat: una pregunta al pasar mientras elige profesional u horario se responde y las opciones siguen valiendo", async () => {
+    await say("web:flujo-3", "Quiero un turno de limpieza");
+    const q1 = await say("web:flujo-3", "¿Dónde quedan?");
+    assert.match(q1.messages.join(" "), /📍/);
+    const r = await say("web:flujo-3", "2"); // sigue eligiendo profesional
+    assert.match(r.messages.join(" "), /horarios libres/);
+    const q2 = await say("web:flujo-3", "¿Aceptan tarjeta?");
+    assert.doesNotMatch(q2.messages.join(" "), /no identifiqué/);
+    const pick = await say("web:flujo-3", "1"); // y después el horario
+    assert.match(pick.messages.join(" "), /nombre y apellido/);
+  });
+
   // ---------------- Lista de espera por profesional ----------------
   await check("Lista de espera: quien espera a un profesional no recibe el hueco de otro", async () => {
     const p = await A.store.getOrCreatePatient("web:espera-ríos", "web");

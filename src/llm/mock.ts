@@ -229,8 +229,11 @@ export class MockProvider implements LlmProvider {
         return waitlist(mem.name);
       }
 
-      // 2) Flujo de reserva
-      if (mem.step === "elige_horario") {
+      // 2) Flujo de reserva. Una pregunta al pasar (dirección, precios, pagos) mientras elige horario,
+      // profesional o especialidad se responde igual; las opciones ofrecidas siguen valiendo.
+      const sideQuestion = ["elige_horario", "elige_profesional", "elige_especialidad"].includes(mem.step) && !timeIn(t) && !/\b[1-4]\b/.test(t) && !parseDay(t, now) &&
+        has(t, "donde", "direccion", "ubicacion", "quedan", "precio", "cuanto", "cuesta", "valor", "pago", "tarjeta", "cuotas", "efectivo", "obra social", "prepaga", "cobertura");
+      if (mem.step === "elige_horario" && !sideQuestion) {
         const time = timeIn(t);
         const pref = parseDay(t, now);
         const n = time ? null : t.match(/\b([1-4])\b/);
@@ -265,7 +268,7 @@ export class MockProvider implements LlmProvider {
       }
 
       // 2b) Especialidad y profesional (antes de buscar horarios)
-      if (mem.step === "elige_especialidad" && mem.specialtyOptions) {
+      if (mem.step === "elige_especialidad" && mem.specialtyOptions && !sideQuestion) {
         const n = t.match(/\b(\d)\b/);
         const sp = n ? mem.specialtyOptions[+n[1]! - 1] : mem.specialtyOptions.find((s) => t.includes(norm(s).split(" ")[0]!) || norm(s).includes(t));
         if (!sp) return `Disculpe, ¿me responde con el número de la especialidad?\n\n${numbered(mem.specialtyOptions)}`;
@@ -273,7 +276,7 @@ export class MockProvider implements LlmProvider {
         mem.treatment = undefined;
         return askDoctorOrOffer();
       }
-      if (mem.step === "elige_profesional" && mem.profOptions) {
+      if (mem.step === "elige_profesional" && mem.profOptions && !sideQuestion) {
         const n = t.match(/\b(\d)\b/);
         const idx = n ? +n[1]! - 1 : mem.profOptions.findIndex((p) => norm(p.nombre).split(" ").some((w) => w.length > 3 && t.includes(w)));
         if (has(t, "primero", "cualquiera", "el que")) mem.profId = "cualquiera";
