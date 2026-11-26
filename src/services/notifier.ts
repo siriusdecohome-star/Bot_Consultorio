@@ -18,7 +18,8 @@ export interface OutboundMessage {
 }
 
 export interface Notifier {
-  send(channel: Channel, userId: string, msg: OutboundMessage): Promise<"enviado" | "plantilla" | "omitido">;
+  /** `lineId`: línea de WhatsApp por la que sale (la última por la que escribió el paciente). */
+  send(channel: Channel, userId: string, msg: OutboundMessage, lineId?: string | null): Promise<"enviado" | "plantilla" | "omitido">;
 }
 
 /** Bandeja de salida del simulador web: la página la lee con GET /api/outbox. */
@@ -38,22 +39,24 @@ export class WebOutbox {
 
 export class ChannelNotifier implements Notifier {
   constructor(private deps: {
-    whatsapp?: WhatsAppSender | null;
+    /** Un cliente fijo, o uno por línea. */
+    whatsapp?: WhatsAppSender | ((lineId: string | null | undefined) => WhatsAppSender | null) | null;
     web?: WebOutbox | null;
     /** Prefijo de la bandeja web: separa las sesiones del simulador de cada clínica. */
     webPrefix?: string;
     log?: (m: string) => void;
   }) {}
 
-  async send(channel: Channel, userId: string, msg: OutboundMessage) {
+  async send(channel: Channel, userId: string, msg: OutboundMessage, lineId?: string | null) {
     const log = this.deps.log ?? ((m: string) => console.log(`[avisos] ${m}`));
     if (channel === "web" && this.deps.web) {
       this.deps.web.push(`${this.deps.webPrefix ?? ""}${userId}`, msg);
       return "enviado" as const;
     }
-    if (channel === "whatsapp" && this.deps.whatsapp) {
+    const w = this.deps.whatsapp;
+    const wa = typeof w === "function" ? w(lineId) : w;
+    if (channel === "whatsapp" && wa) {
       const to = userId.replace(/^\+/, "");
-      const wa = this.deps.whatsapp;
       try {
         if (msg.buttons?.length) {
           await wa.sendButtons(to, msg.text, msg.buttons.map((t, i) => ({ id: `b${i}`, title: t })));

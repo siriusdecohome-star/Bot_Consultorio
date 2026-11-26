@@ -12,7 +12,9 @@ import type { Store } from "../services/store.js";
 import type { SupabaseStore } from "../services/supabaseStore.js";
 import type { Clock } from "../services/time.js";
 import { setDefaultClinic } from "./context.js";
+import { defaultCloudLine, lineById, rowToLine } from "./lines.js";
 import type { ClinicKnowledge, ClinicProfile } from "./types.js";
+
 
 /** Fila de la tabla `clinics` → perfil. */
 export function rowToClinic(r: any): ClinicProfile {
@@ -21,7 +23,7 @@ export function rowToClinic(r: any): ClinicProfile {
     name: r.name,
     timezone: r.timezone,
     slotMinutes: r.slot_minutes,
-    whatsappPhoneNumberId: r.whatsapp_phone_number_id ?? null,
+    lines: [],
     calendarTag: r.calendar_tag,
     primary: r.is_primary,
     calendarColor: r.calendar_color,
@@ -35,7 +37,7 @@ export function rowToClinic(r: any): ClinicProfile {
 export function clinicToRow(c: ClinicProfile) {
   return {
     id: c.id, name: c.name, timezone: c.timezone, slot_minutes: c.slotMinutes,
-    whatsapp_phone_number_id: c.whatsappPhoneNumberId, calendar_tag: c.calendarTag,
+    calendar_tag: c.calendarTag,
     is_primary: c.primary, calendar_color: c.calendarColor, knowledge: c.knowledge, settings: c.settings, expires_at: c.expiresAt ?? null,
   };
 }
@@ -56,6 +58,8 @@ export async function loadClinics(services: Services): Promise<ClinicProfile[]> 
   // Profesionales de cada clínica (tabla professionals). Si una clínica no tiene, se usan los de ejemplo.
   const { data: profs, error: e2 } = await db.from("professionals").select("*").order("created_at");
   if (e2) throw new Error(`No se pudieron leer los profesionales: ${e2.message}. ¿Ejecutó supabase/schema.sql?`);
+  const { data: lines, error: e3 } = await db.from("whatsapp_lines").select("*").order("created_at");
+  if (e3) throw new Error(`No se pudieron leer las líneas de WhatsApp: ${e3.message}. ¿Ejecutó supabase/schema.sql?`);
   const demo = new Map(demoClinics().map((c) => [c.id, c.professionals]));
   return data.map((r: any) => {
     const c = rowToClinic(r);
@@ -64,6 +68,7 @@ export async function loadClinics(services: Services): Promise<ClinicProfile[]> 
     }));
     if (!mine.length && demo.has(c.id)) console.warn(`⚠ ${c.name} no tiene profesionales en la base: se usan los de ejemplo. Ejecute npm run seed.`);
     c.professionals = mine.length ? mine : structuredClone(demo.get(c.id) ?? []);
+    c.lines = (lines ?? []).filter((l: any) => l.clinic_id === c.id).map(rowToLine);
     return c;
   });
 }
@@ -76,8 +81,12 @@ export interface ClinicRuntime {
   reminders: ReminderService;
   waitlist: WaitlistService;
   notifier: Notifier;
-  /** Cliente de WhatsApp de su número, si tiene uno. */
+  /** Cliente de WhatsApp de su primera línea real, si tiene una. */
   whatsapp: WhatsAppSender | null;
+  /** Cliente de WhatsApp de cada línea real (por id de línea). */
+  senders: Map<string, WhatsAppSender>;
+  /** Cliente de la línea indicada; sin línea (o simulada), el de la primera línea real. */
+  senderFor(lineId: string | null | undefined): WhatsAppSender | null;
 }
 
 export interface RuntimeOptions {
@@ -86,7 +95,7 @@ export interface RuntimeOptions {
   provider: LlmProvider;
   clock: Clock;
   outbox?: WebOutbox;
-  /** Crea el cliente de WhatsApp para el número de una clínica (null = no se puede enviar). */
+  /** Crea el cliente de WhatsApp para el número de una línea (null = no se puede enviar). */
   whatsappFor?: (phoneNumberId: string) => WhatsAppSender | null;
   /** false = no cambia la clínica por defecto (al sumar una clínica temporal de la demo). */
   setDefault?: boolean;
@@ -104,8 +113,19 @@ export function buildRuntimes(o: RuntimeOptions): Map<string, ClinicRuntime> {
   for (const profile of o.clinics) {
     const store = o.services.store.forClinic(profile.id);
     const calendar = new ClinicCalendar(o.services.calendar, profile);
-    const whatsapp = profile.whatsappPhoneNumberId && o.whatsappFor ? o.whatsappFor(profile.whatsappPhoneNumberId) : null;
-    const notifier = new ChannelNotifier({ whatsapp, web: o.outbox ?? null, webPrefix: `${profile.id}|` });
+    const senders = new Map<string, WhatsAppSender>();
+    for (const l of profile.lines) {
+      const s = l.kind === "cloud" && l.phoneNumberId && o.whatsappFor ? o.whatsappFor(l.phoneNumberId) : null;
+      if (s) senders.set(l.id, s);
+    }
+    const fallbackLine = defaultCloudLine(profile);
+    const whatsapp = fallbackLine ? senders.get(fallbackLine.id) ?? null : null;
+    // La respuesta sale por la línea por la que escribió el paciente; si no se sabe, por la primera real.
+    const senderFor = (lineId: string | null | undefined) => {
+      const l = lineById(profile, lineId);
+      return (l?.kind === "cloud" ? senders.get(l.id) : null) ?? whatsapp;
+    };
+    const notifier = new ChannelNotifier({ whatsapp: senderFor, web: o.outbox ?? null, webPrefix: `${profile.id}|` });
     const bot = new BotEngine(o.provider, store, calendar, o.clock, profile);
     const waitlist = new WaitlistService(store, notifier, calendar, o.clock, profile);
     bot.waitlist = waitlist;
@@ -115,15 +135,19 @@ export function buildRuntimes(o: RuntimeOptions): Map<string, ClinicRuntime> {
       bot.fallback = o.fallbackProvider;
     }
     map.set(profile.id, {
-      profile, store, calendar, notifier, whatsapp, bot, waitlist,
+      profile, store, calendar, notifier, whatsapp, senders, senderFor, bot, waitlist,
       reminders: new ReminderService(store, notifier, o.clock, profile),
     });
   }
   return map;
 }
 
-/** Busca la clínica que tiene asignado un número de WhatsApp (webhook multiempresa). */
-export function runtimeByPhoneNumberId(runtimes: Map<string, ClinicRuntime>, phoneNumberId: string | null | undefined) {
+/** Webhook: la clínica y la línea según el número de Meta que recibió el mensaje (null = número desconocido). */
+export function lineByPhoneNumberId(runtimes: Map<string, ClinicRuntime>, phoneNumberId: string | null | undefined) {
   if (!phoneNumberId) return null;
-  return [...runtimes.values()].find((r) => r.profile.whatsappPhoneNumberId === phoneNumberId) ?? null;
+  for (const rt of runtimes.values()) {
+    const line = rt.profile.lines.find((l) => l.active && l.kind === "cloud" && l.phoneNumberId === phoneNumberId);
+    if (line) return { rt, line };
+  }
+  return null;
 }

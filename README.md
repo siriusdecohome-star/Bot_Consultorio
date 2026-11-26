@@ -189,6 +189,54 @@ Pestaña **Seguimientos** del panel (edita el admin; recepción la ve). Las regl
 - **El chat de la demo entra por el mismo camino que WhatsApp:** el webhook y el simulador llaman a la misma función ([src/channels/inbound.ts](src/channels/inbound.ts)), con el mismo motor, las mismas herramientas y la misma base; solo cambia el canal. Por eso lo que se prueba en el simulador es lo que pasa por WhatsApp, y la conversación aparece en la bandeja del panel.
 - En la demo, el chat muestra una sola aclaración: «En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.»
 
+## Líneas de WhatsApp
+
+Una clínica puede tener **varios números**: recepción, la línea de un profesional o la de un área. Cada número es una fila de la tabla `whatsapp_lines` ([src/clinics/lines.ts](src/clinics/lines.ts)), con estos datos:
+
+- el `phone_number_id` de Meta;
+- la clínica y un nombre;
+- opcionalmente, un profesional o un área.
+
+- **Ruteo por número:** el webhook lee el número que recibió el mensaje (`metadata.phone_number_id`) y con eso elige la clínica y la línea. Un número que no está en la tabla se ignora.
+- **Misma línea de ida y vuelta:** la conversación queda asociada a la línea, y la respuesta del bot y la de recepción desde el panel salen por ese mismo número. Los avisos automáticos (recordatorios, seguimientos, lista de espera, reprogramaciones) salen por la última línea por la que escribió el paciente. Si escribe por otra línea de la misma clínica, la conversación pasa a esa línea y queda una nota en el historial.
+- **Línea de un profesional:** el bot lo ofrece primero al pedir turno (p. ej. «Ortodoncia · Dr. Ríos»). Si el paciente pide otra especialidad, lo atiende igual.
+- **Bandeja:** cada chat muestra su línea, y hay un filtro por línea cuando la clínica tiene más de una. Los contadores respetan el filtro. El identificador de Meta no se muestra en el panel.
+- **Líneas simuladas:** el simulador elige a qué línea escribe. La demo tiene dos: «Línea general» y «Ortodoncia · Dr. Ríos». Entran por la misma función que el webhook y no envían nada a Meta.
+- **Alta de un número:** se agrega una fila en `whatsapp_lines` (con `npm run seed` para los de ejemplo, o por SQL con la clave secreta). El equipo solo puede leer las líneas.
+
+### Conectar el número de cada consultorio (Embedded Signup)
+
+No está implementado; esto documenta cómo se haría en producción.
+
+- **Qué es:** **Embedded Signup** es la ventana de Meta, basada en Facebook Login for Business, donde el consultorio conecta su propio número de WhatsApp Business sin pasarnos credenciales.
+- **Qué se guarda:** del resultado se obtiene el `phone_number_id` y se crea su fila en `whatsapp_lines`.
+- **Requisitos:** ser **Tech Provider** o **Solution Partner** de Meta.
+- **Límite de altas:** por defecto, 10 cuentas nuevas cada 7 días; sube a 200 con verificación del negocio y revisión de la app.
+- **Versión:** las versiones v2 y v3 de Embedded Signup quedaron obsoletas el 15/10/2026, así que hay que integrar v4 o posterior.
+
+### Coexistencia con la app WhatsApp Business
+
+Si el consultorio ya usa la app WhatsApp Business en ese número, puede conectarlo a la Cloud API sin perder la app. Meta llama a esto «coexistencia» y se hace con Embedded Signup. Condiciones según la documentación de Meta:
+
+- **Requisitos:**
+  - Hay que ser Tech Provider o Solution Partner.
+  - La app tiene que ser la versión **2.24.17 o superior**.
+- **Velocidad:** el número queda con un máximo fijo de **20 mensajes por segundo**.
+- **Chats 1 a 1:** siguen funcionando en la app y en la API, y se reflejan en ambos lados. Lo que recepción manda desde la app llega a nuestro sistema como «eco» (webhook `smb_message_echoes`).
+  - Los mensajes enviados desde la app no se cobran y no dependen de la ventana de 24 h.
+  - Los enviados por la API se cobran con la tarifa de la Cloud API.
+- **Historial:**
+  - Se pueden importar los últimos **6 meses** de chats.
+  - La importación tiene que hacerse dentro de las **24 h** de la conexión; si no, hay que repetir el alta.
+- **Qué deja de funcionar en la app:**
+  - grupos y listas de difusión (las existentes quedan de solo lectura);
+  - mensajes temporales, «ver una vez» y ubicación en tiempo real;
+  - llamadas;
+  - catálogo y respuestas rápidas.
+- **Dispositivos vinculados:** se desvinculan al conectar y se pueden volver a vincular hasta cuatro. WhatsApp para Windows no es compatible.
+- **Desconexión:** se hace desde la app, en Configuración → Cuenta → Business Platform. También se desconecta si el teléfono principal queda unos 14 días sin uso.
+- **Pendiente de verificar:** la página de Meta no lista países habilitados. Hay que confirmar en la documentación oficial que el país del consultorio esté habilitado antes de ofrecerlo.
+
 ## Multiempresa y seguridad
 
 - **Tablas:** `clinics` guarda el perfil y el conocimiento de cada clínica; `clinic_members` vincula usuarios de Supabase Auth con su clínica y su rol (`admin` o `recepcion`). Todas las demás tablas llevan `clinic_id`.
@@ -365,6 +413,7 @@ npm test
 | `test:doctors` | 14 | Doble reserva por profesional (incluida la superposición con duraciones distintas), «el primero disponible», horario por profesional, excepciones (día, franja, vacaciones) con turnos afectados y aviso por el bot, reprogramación desde el aviso, flujo especialidad → profesional → horario, lista de espera por profesional y edición desde el panel |
 | `test:followups` | 12 | Reglas activadas y desactivadas (72 h, 24 h, 2 h, 1 h, después del turno, reactivación, leads), una sola regla por turno sin duplicados, reserva dentro de la ventana, horario de silencio, textos editados y edición desde el panel |
 | `test:demo` | 8 | Clínica temporal con datos y sesión de admin solo de esa clínica, aislamiento, simulador por la misma entrada que WhatsApp sin tocar Google Calendar, tope de IA por visita y diario con paso al modo sin IA, límites y borrado al vencer |
+| `test:lines` | 11 | Webhook que elige clínica y línea por el número que recibió el mensaje y responde por esa línea, número desconocido ignorado, cambio de línea con nota, respuesta del panel y recordatorios por la línea del paciente, línea de un profesional que lo ofrece primero, línea y filtro en la bandeja, líneas simuladas sin envíos a Meta |
 | `test:inbox` | 23 | Cada estado de la bandeja y sus transiciones, cierre automático y reapertura, contadores coherentes, ficha editable, nombre real con herramienta, menú con botones o lista, horarios editados que limitan los turnos ofrecidos, datos de ejemplo |
 | `test:cases` | 8 | Los casos de calidad, con tiempo de respuesta y costo → [reports/test-results.md](reports/test-results.md) |
 | `test:integration` | 8 pasos | Contra Supabase y Google Calendar reales: reserva, doble reserva, índice por clínica, búsqueda de documentos y **RLS** con la sesión de una recepcionista |

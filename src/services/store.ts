@@ -21,10 +21,12 @@ export interface Patient {
   tags: string[];
   channel: Channel;
   source: string | null; // p. ej. "promo-noviembre"
+  /** Última línea de WhatsApp por la que escribió: los avisos salen por esa misma línea. */
+  lineId?: string | null;
   createdAt: string;
 }
 
-export type PatientPatch = Partial<Pick<Patient, "name" | "source" | "profileName" | "contactPhone" | "notes" | "tags">>;
+export type PatientPatch = Partial<Pick<Patient, "name" | "source" | "profileName" | "contactPhone" | "notes" | "tags" | "lineId">>;
 
 export type AppointmentStatus = "confirmada" | "pendiente" | "cancelada" | "reprogramada" | "asistio" | "ausente";
 
@@ -91,6 +93,8 @@ export interface Conversation {
   /** Cerrada por inactividad, al confirmar o cancelar un turno, o a mano. Se reabre si el paciente vuelve a escribir. */
   closedAt: string | null;
   closedReason: CloseReason | null;
+  /** Línea de WhatsApp de la conversación (la última por la que escribió el paciente); la respuesta sale por ahí. */
+  lineId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

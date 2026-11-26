@@ -11,7 +11,7 @@ create table if not exists clinics (
   name                      text not null,
   timezone                  text not null,
   slot_minutes              integer not null default 30,
-  whatsapp_phone_number_id  text unique,                 -- null = sin WhatsApp real (solo simulador)
+  whatsapp_phone_number_id  text unique,                 -- obsoleta: los números van en whatsapp_lines (se migra abajo)
   calendar_tag              text not null unique,        -- etiqueta `clinic` de sus eventos en Google Calendar
   is_primary                boolean not null default false,
   calendar_color            text not null default '10',
@@ -298,6 +298,34 @@ alter table waitlist add column if not exists professional_id text;
 alter table professionals            enable row level security;
 alter table professional_exceptions  enable row level security;
 
+-- ============================================================
+-- Líneas de WhatsApp: una clínica puede tener varios números (Cloud API) y líneas simuladas
+-- (simulador de la demo). El webhook elige clínica y línea por el número que recibió el mensaje.
+-- ============================================================
+create table if not exists whatsapp_lines (
+  id               text primary key,
+  clinic_id        text not null references clinics(id) on delete cascade,
+  name             text not null,                    -- lo que ve el equipo: «Recepción», «Ortodoncia · Dr. Ríos»
+  kind             text not null check (kind in ('cloud','simulada')),
+  phone_number_id  text unique,                      -- «Identificador del número de teléfono» de Meta (solo cloud)
+  display_phone    text,
+  professional_id  text,                             -- línea de un profesional (opcional)
+  area             text,                             -- línea de un área (opcional, texto libre)
+  active           boolean not null default true,
+  created_at       timestamptz not null default now(),
+  check (kind = 'simulada' or phone_number_id is not null),
+  foreign key (clinic_id, professional_id) references professionals (clinic_id, id) on delete set null (professional_id)
+);
+create index if not exists whatsapp_lines_by_clinic on whatsapp_lines (clinic_id);
+alter table whatsapp_lines enable row level security;
+-- Migración: el número que estaba en clinics pasa a ser la línea «Recepción».
+insert into whatsapp_lines (id, clinic_id, name, kind, phone_number_id)
+  select id || '-recepcion', id, 'Recepción', 'cloud', whatsapp_phone_number_id from clinics where whatsapp_phone_number_id is not null
+  on conflict do nothing;
+-- Línea de cada conversación (y la última de cada paciente): la respuesta y los avisos salen por ahí.
+alter table conversations add column if not exists line_id text references whatsapp_lines(id) on delete set null;
+alter table patients      add column if not exists line_id text references whatsapp_lines(id) on delete set null;
+
 -- Las políticas se recrean para que el archivo se pueda volver a ejecutar.
 drop policy if exists clinics_read  on clinics;
 drop policy if exists clinics_admin on clinics;
@@ -349,6 +377,10 @@ create policy chunks_admin on document_chunks for all to authenticated
 drop policy if exists turn_metrics_admin on turn_metrics;
 create policy turn_metrics_admin on turn_metrics for select to authenticated using (public.is_clinic_admin(clinic_id));
 
+-- Líneas de WhatsApp: el equipo las ve; se dan de alta con la clave secreta (seed o alta de un número).
+drop policy if exists whatsapp_lines_read on whatsapp_lines;
+create policy whatsapp_lines_read on whatsapp_lines for select to authenticated using (clinic_id in (select public.my_clinic_ids()));
+
 -- Resultados de pruebas: lectura para cualquier usuario del panel.
 drop policy if exists test_results_read on test_results;
 create policy test_results_read on test_results for select to authenticated using (true);
@@ -364,7 +396,7 @@ grant select, insert, update, delete on all tables in schema public to service_r
 grant usage, select on all sequences in schema public to service_role;
 grant select, insert, update, delete on patients, conversations, appointments, handoffs, waitlist, professional_exceptions, professionals to authenticated;
 grant select, update on clinics to authenticated;
-grant select on clinic_members, turn_metrics, test_results to authenticated;
+grant select on clinic_members, turn_metrics, test_results, whatsapp_lines to authenticated;
 grant select, insert, delete on documents, document_chunks to authenticated;
 grant usage, select on sequence document_chunks_id_seq to authenticated;
 revoke all on all tables in schema public from anon;

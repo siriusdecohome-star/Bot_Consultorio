@@ -20,6 +20,7 @@ const state = {
   weekFrom: null,     // lunes de la semana visible (YYYY-MM-DD)
   prevAgenda: null,   // Map slot -> {kind, id} del render anterior
   provider: "",
+  line: null,         // línea simulada a la que escribe el paciente (id)
 };
 
 // ---------- Utilidades ----------
@@ -153,7 +154,7 @@ async function deliver(text, out) {
     const res = await fetch(api("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: state.sessionId, text, source }),
+      body: JSON.stringify({ sessionId: state.sessionId, text, source, ...(state.line ? { line: state.line } : {}) }),
     });
     const data = await res.json();
     // Un mínimo de "escribiendo…" para que se vea natural (también en el video).
@@ -359,6 +360,21 @@ $("#clock").textContent = hhmm();
       p.set("clinica", sel.value);
       location.search = p.toString();
     });
+    // Líneas simuladas: el paciente elige a qué número escribe (p. ej. la línea de ortodoncia del Dr. Ríos).
+    const lines = cfg.lines ?? [];
+    const short = cfg.clinic.replace(/^(Clínica Dental|Centro Odontológico) /, "");
+    const lineSel = $("#line-sel");
+    const fromUrl = lines.find((l) => l.id === params.get("linea"));
+    state.line = (fromUrl ?? lines[0])?.id ?? null;
+    lineSel.innerHTML = lines.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join("");
+    lineSel.value = state.line ?? "";
+    $("#line-pick").hidden = lines.length < 2;
+    const showLine = () => {
+      const l = lines.find((x) => x.id === state.line);
+      $("#wa-name").textContent = lines.length > 1 && l ? `${short} · ${l.name}` : short;
+    };
+    showLine();
+    lineSel.addEventListener("change", () => { state.line = lineSel.value; showLine(); input.focus(); });
     const cal = cfg.calendar === "google" ? "Google Calendar" : "agenda en memoria";
     $("#agenda-source").innerHTML = `<span class="live-dot"></span> ${cal} · se actualiza con cada reserva`;
     $("#subtitle").textContent = `Demo con datos ficticios · IA: ${cfg.provider} · base: ${cfg.store}`;

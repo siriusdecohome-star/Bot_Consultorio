@@ -243,7 +243,7 @@ export class ReminderService {
     if (!patient) throw new Error("paciente no encontrado");
     const conv = await this.store.getOrCreateConversation(patient, patient.channel);
     const msg = ruleMessage(rule, a, now);
-    await this.notifier.send(patient.channel, patient.phone, msg);
+    await this.notifier.send(patient.channel, patient.phone, msg, patient.lineId);
     const kind = rule.kind === "despues" ? "post_visit" : rule.hours === 24 ? "reminder24" : rule.hours === 2 ? "reminder2" : "reminder";
     conv.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), ...(msg.buttons ? { options: msg.buttons } : {}), meta: { kind, appointmentId: a.id, ruleId: rule.id } });
     conv.privacyShown = true;
@@ -323,7 +323,7 @@ export class ReminderService {
 
   private async sendReactivation(c: ReactivationCandidate) {
     const msg = reactivationMessage(c.patient.name, c.monthsAgo, c.lastTreatment);
-    await this.notifier.send(c.patient.channel, c.patient.phone, msg);
+    await this.notifier.send(c.patient.channel, c.patient.phone, msg, c.patient.lineId);
     const conv = await this.store.getOrCreateConversation(c.patient, c.patient.channel);
     conv.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), ...(msg.buttons ? { options: msg.buttons } : {}), meta: { kind: "reactivation", ruleId: reactivationRule().id } });
     conv.privacyShown = true;
@@ -367,7 +367,7 @@ export class ReminderService {
 
   private async sendFollowup(c: Conversation, channel: Conversation["channel"], userId: string, name: string | null) {
     const msg = followupMessage(name);
-    await this.notifier.send(channel, userId, msg);
+    await this.notifier.send(channel, userId, msg, c.lineId);
     c.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), ...(msg.buttons ? { options: msg.buttons } : {}), meta: { kind: "followup", ruleId: leadRule().id } });
     await this.store.saveConversation(c);
   }

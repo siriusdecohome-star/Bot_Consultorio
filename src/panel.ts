@@ -6,6 +6,8 @@ import { config, ROOT } from "./config.js";
 import { isSecure, type AuthBackend, type Membership, type PanelUser } from "./auth.js";
 import { withClinic } from "./clinics/context.js";
 import type { ClinicRuntime } from "./clinics/registry.js";
+import { hasWhatsApp, lineById, lineLabel } from "./clinics/lines.js";
+import type { ClinicProfile } from "./clinics/types.js";
 import type { Appointment, Conversation, Patient, Store, TurnMetric } from "./services/store.js";
 import type { ClinicKnowledge } from "./clinics/types.js";
 import { buildCosts, buildStats, isSimulated } from "./analytics.js";
@@ -238,7 +240,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
     ]);
     const state = conversationState(c);
     res.json({
-      id: c.id, channel: c.channel, state, stateLabel: STATE_LABEL[state],
+      id: c.id, channel: c.channel, state, stateLabel: STATE_LABEL[state], line: lineView(req.runtime!.profile, c.lineId),
       handedOff: c.handedOff, botPaused: c.botPaused, assignedTo: c.assignedTo,
       closedAt: c.closedAt, closedReason: c.closedReason ? CLOSE_REASON_LABEL[c.closedReason] : null,
       patient: patientCard(p),
@@ -279,7 +281,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
     const by = req.user!.email;
     try {
       // Pacientes de ejemplo: el teléfono es ficticio, el mensaje se guarda sin enviarse.
-      const how = p.id.startsWith("demo_") ? "omitido" : await req.runtime!.notifier.send(c.channel, p.phone, { text: `👩‍⚕️ *Recepción:* ${text}` });
+      const how = p.id.startsWith("demo_") ? "omitido" : await req.runtime!.notifier.send(c.channel, p.phone, { text: `👩‍⚕️ *Recepción:* ${text}` }, c.lineId);
       const at = clock().toISOString();
       reopenConversation(c, at, `${by} reabrió la conversación.`);
       if (!c.handedOff && !c.botPaused) await takeOver(store, c, by, at);
@@ -320,17 +322,19 @@ export function createPanelRouter(opts: PanelOptions): Router {
     const wanted = String(req.query.filtro ?? req.query.estado ?? "activas") as InboxFilter;
     const filter: InboxFilter = INBOX_FILTERS.includes(wanted) ? wanted : "activas";
     const q = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+    const lineFilter = typeof req.query.linea === "string" && req.query.linea ? req.query.linea : null;
+    const profile = req.runtime!.profile;
     const [convs, patients] = await Promise.all([store.listConversations(), store.listPatients()]);
     const byId = new Map(patients.map((p) => [p.id, p]));
     const all = convs
-      .filter((c) => c.channel !== "test")
+      .filter((c) => c.channel !== "test" && (!lineFilter || c.lineId === lineFilter))
       .map((c) => {
         const p = byId.get(c.patientId);
         const state = conversationState(c);
         const last = c.messages.findLast((m) => m.role !== "system");
         return {
           id: c.id, patientId: c.patientId, patient: displayName(p), phone: mask(p?.contactPhone ?? p?.phone ?? ""),
-          channel: c.channel, source: p?.source ?? null, tags: p?.tags ?? [],
+          channel: c.channel, source: p?.source ?? null, tags: p?.tags ?? [], line: lineView(profile, c.lineId),
           state, waiting: state === "esperando", assignedTo: c.assignedTo,
           closedReason: c.closedReason ? CLOSE_REASON_LABEL[c.closedReason] : null,
           lastText: last?.text.slice(0, 120) ?? "", lastRole: last?.role ?? null, lastAt: lastActivity(c),
@@ -341,6 +345,17 @@ export function createPanelRouter(opts: PanelOptions): Router {
       .filter((c) => matchesFilter(c.state, filter))
       .sort((a, b) => Number(b.waiting) - Number(a.waiting) || b.lastAt.localeCompare(a.lastAt));
     res.json({ filter, counts: inboxCounts(all.map((c) => c.state)), conversations: list.slice(0, 300) });
+  });
+
+  /** Líneas de WhatsApp de la clínica (filtro de la bandeja). El identificador de Meta no se muestra. */
+  r.get("/lines", (req: PanelRequest, res) => {
+    const c = req.runtime!.profile;
+    res.json({
+      lines: c.lines.filter((l) => l.active).map((l) => ({
+        ...lineView(c, l.id), area: l.area, displayPhone: l.displayPhone,
+        professional: c.professionals.find((p) => p.id === l.professionalId)?.name ?? null,
+      })),
+    });
   });
 
   /** Contadores de la bandeja (pestaña y resumen): mismos criterios que la lista. */
@@ -562,7 +577,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
       settings: rt.profile.settings,
       upcoming,
       // En WhatsApp real, fuera de las 24 h desde el último mensaje del paciente solo se puede usar una plantilla aprobada.
-      whatsappNumber: Boolean(rt.profile.whatsappPhoneNumberId),
+      whatsappNumber: hasWhatsApp(rt.profile),
       templates: [appConfig.whatsapp.templateReminder, appConfig.whatsapp.templateFollowup, appConfig.whatsapp.templateReactivation, appConfig.whatsapp.templatePostVisit],
       canEdit: req.membership!.role === "admin",
     });
@@ -1045,4 +1060,10 @@ export function validateKnowledge(k: any): string | null {
   if (!k.promo || typeof k.promo.name !== "string" || typeof k.promo.detail !== "string") return "Promoción inválida";
   if (!Array.isArray(k.professionals)) return "Profesionales inválidos";
   return validateMenu(k.menu);
+}
+
+/** Línea de una conversación para la bandeja. */
+function lineView(c: ClinicProfile, id: string | null | undefined) {
+  const l = lineById(c, id);
+  return l ? { id: l.id, name: l.name, kind: l.kind, label: lineLabel(l) } : null;
 }

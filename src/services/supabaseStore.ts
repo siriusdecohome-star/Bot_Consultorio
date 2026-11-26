@@ -22,7 +22,7 @@ function check<T>(res: { data: T; error: { message: string; code?: string } | nu
 // --- Conversión fila ↔ objeto (snake_case en la base, camelCase en el código) ---
 const toPatient = (r: any): Patient => ({
   id: r.id, phone: r.phone, name: r.name, profileName: r.profile_name ?? null, contactPhone: r.contact_phone ?? null,
-  notes: r.notes ?? "", tags: r.tags ?? [], channel: r.channel, source: r.source, createdAt: r.created_at,
+  notes: r.notes ?? "", tags: r.tags ?? [], channel: r.channel, source: r.source, lineId: r.line_id ?? null, createdAt: r.created_at,
 });
 const patientPatch = (p: PatientPatch) => {
   const m: Record<string, unknown> = {};
@@ -32,13 +32,14 @@ const patientPatch = (p: PatientPatch) => {
   if (p.contactPhone !== undefined) m.contact_phone = p.contactPhone;
   if (p.notes !== undefined) m.notes = p.notes;
   if (p.tags !== undefined) m.tags = p.tags;
+  if (p.lineId !== undefined) m.line_id = p.lineId;
   return m;
 };
 const toConv = (r: any): Conversation => ({
   id: r.id, patientId: r.patient_id, channel: r.channel, llmProvider: r.llm_provider, llmState: r.llm_state,
   messages: r.messages, privacyShown: r.privacy_shown, handedOff: r.handed_off, botPaused: r.bot_paused ?? false,
   assignedTo: r.assigned_to ?? null, closedAt: r.closed_at ?? null, closedReason: r.closed_reason ?? null,
-  createdAt: r.created_at, updatedAt: r.updated_at,
+  lineId: r.line_id ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const toAppt = (r: any): Appointment => ({
   id: r.id, patientId: r.patient_id, patientName: r.patient_name, treatment: r.treatment, professionalId: r.professional_id ?? null,
@@ -170,7 +171,7 @@ export class SupabaseStore implements Store {
     check(await this.from("conversations").update({
       llm_provider: c.llmProvider, llm_state: c.llmState, messages: c.messages,
       privacy_shown: c.privacyShown, handed_off: c.handedOff, bot_paused: c.botPaused,
-      assigned_to: c.assignedTo, closed_at: c.closedAt, closed_reason: c.closedReason, updated_at: new Date().toISOString(),
+      assigned_to: c.assignedTo, closed_at: c.closedAt, closed_reason: c.closedReason, line_id: c.lineId ?? null, updated_at: new Date().toISOString(),
     }).eq("clinic_id", this.clinicId).eq("id", c.id));
   }
   async listConversations() {

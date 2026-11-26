@@ -14,7 +14,7 @@ import { InMemoryCalendar, Availability } from "../src/services/calendar.js";
 import { InMemoryStore, SlotTakenError } from "../src/services/store.js";
 import { demoClinics, CLINIC_A, CLINIC_B } from "../src/data/clinics/index.js";
 import { demoUsers } from "../src/data/clinics/users.js";
-import { buildRuntimes, runtimeByPhoneNumberId } from "../src/clinics/registry.js";
+import { buildRuntimes, lineByPhoneNumberId } from "../src/clinics/registry.js";
 import { withClinic } from "../src/clinics/context.js";
 import { createWhatsAppRouter } from "../src/channels/whatsappWebhook.js";
 import type { WhatsAppSender } from "../src/channels/whatsappClient.js";
@@ -24,7 +24,8 @@ import type { Services } from "../src/services/factory.js";
 
 const clock = () => new Date("2026-11-23T14:15:00Z"); // lunes 10:15 en La Paz
 const clinics = demoClinics();
-clinics[0]!.whatsappPhoneNumberId = "PN_A"; // número de prueba ficticio de la clínica A
+clinics[0]!.lines = clinics[0]!.lines.filter((l) => l.kind !== "cloud"); // sin el número real del .env
+clinics[0]!.lines.unshift({ id: "sonrisa-clara-recepcion", clinicId: CLINIC_A, name: "Recepción", kind: "cloud", phoneNumberId: "PN_A", displayPhone: null, professionalId: null, area: null, active: true }); // número de prueba ficticio de la clínica A
 const services: Services = { store: new InMemoryStore(clock), calendar: new InMemoryCalendar(), storeKind: "memoria", calendarKind: "memoria" };
 
 const sent: Array<{ to: string; text: string; via: string }> = [];
@@ -107,7 +108,7 @@ const app = express();
 app.use(express.json({ verify: (req, _r, buf) => { (req as any).rawBody = buf; } }));
 app.use("/webhook/whatsapp", createWhatsAppRouter({
   verifyToken: "v", appSecret: SECRET, log: () => {},
-  route: (pn) => { const rt = runtimeByPhoneNumberId(runtimes, pn); return rt ? { bot: rt.bot, sender: rt.whatsapp! } : null; },
+  route: (pn) => { const hit = lineByPhoneNumberId(runtimes, pn); return hit ? { bot: hit.rt.bot, sender: hit.rt.senders.get(hit.line.id)!, lineId: hit.line.id } : null; },
 }));
 
 // --- Panel con usuarios de prueba (contraseñas solo para esta prueba) ---

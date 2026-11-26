@@ -11,7 +11,8 @@ import { WebOutbox } from "./services/notifier.js";
 import type { WhatsAppSender } from "./channels/whatsappClient.js";
 import { createPanelRouter } from "./panel.js";
 import { clearCookie, createAuth, isSecure } from "./auth.js";
-import { buildRuntimes, loadClinics, runtimeByPhoneNumberId, type ClinicRuntime } from "./clinics/registry.js";
+import { buildRuntimes, lineByPhoneNumberId, loadClinics, type ClinicRuntime } from "./clinics/registry.js";
+import { cloudLines, hasWhatsApp, lineById, simulatedLines } from "./clinics/lines.js";
 import { withClinic } from "./clinics/context.js";
 import { SupabaseStore } from "./services/supabaseStore.js";
 import { closeIdleConversations } from "./bot/conversationState.js";
@@ -115,12 +116,13 @@ if (wa.verifyToken) {
   app.use("/webhook/whatsapp", createWhatsAppRouter({
     verifyToken: wa.verifyToken,
     appSecret: wa.appSecret,
+    // La clínica y la línea salen del número que recibió el mensaje; la respuesta sale por esa misma línea.
     route: (phoneNumberId) => {
-      const rt = runtimeByPhoneNumberId(runtimes, phoneNumberId);
-      return rt ? { bot: rt.bot, sender: rt.whatsapp ?? noToken } : null;
+      const hit = lineByPhoneNumberId(runtimes, phoneNumberId);
+      return hit ? { bot: hit.rt.bot, sender: hit.rt.senders.get(hit.line.id) ?? noToken, lineId: hit.line.id } : null;
     },
   }));
-  const withNumber = [...runtimes.values()].filter((r) => r.profile.whatsappPhoneNumberId).map((r) => r.profile.name);
+  const withNumber = [...runtimes.values()].flatMap((r) => cloudLines(r.profile).map((l) => `${r.profile.name} (${l.name})`));
   whatsappStatus = [
     "webhook en /webhook/whatsapp",
     withNumber.length ? `números asignados: ${withNumber.join(", ")}` : "⚠ ninguna clínica tiene número asignado",
@@ -278,7 +280,9 @@ app.get("/api/config", clinicRoute((rt, _req, res) => {
     clinic: rt.profile.name,
     // Las clínicas temporales de otros visitantes no se listan.
     clinics: [...runtimes.values()].filter((r) => !isTempClinic(r.profile) || r.profile.id === rt.profile.id)
-      .map((r) => ({ id: r.profile.id, name: r.profile.name, whatsapp: Boolean(r.profile.whatsappPhoneNumberId) })),
+      .map((r) => ({ id: r.profile.id, name: r.profile.name, whatsapp: hasWhatsApp(r.profile) })),
+    // Líneas simuladas de esta clínica: el simulador escribe como si fuera a uno de esos números.
+    lines: simulatedLines(rt.profile).map((l) => ({ id: l.id, name: l.name, area: l.area, professional: rt.profile.professionals.find((p) => p.id === l.professionalId)?.name ?? null })),
     demo: isTempClinic(rt.profile),
     provider: rt.bot.providerName,
     store: services.storeKind,
@@ -293,7 +297,11 @@ app.post("/api/session", (_req, res) => {
 });
 
 app.post("/api/chat", clinicRoute(async (rt, req, res) => {
-  const { sessionId, text, source } = req.body ?? {};
+  const { sessionId, text, source, line } = req.body ?? {};
+  // Línea simulada elegida en el simulador (por defecto, la primera). Las reales solo entran por el webhook.
+  const chosen = typeof line === "string" ? lineById(rt.profile, line) : null;
+  if (line && (!chosen || chosen.kind !== "simulada" || !chosen.active)) return res.status(400).json({ error: "Línea inválida" });
+  const lineId = (chosen ?? simulatedLines(rt.profile)[0])?.id ?? null;
   if (!validSession(sessionId)) return res.status(400).json({ error: "Sesión inválida" });
   if (typeof text !== "string" || !text.trim()) return res.status(400).json({ error: "Mensaje vacío" });
   if (JSON.stringify(req.body).length > 20_000) return res.status(413).json({ error: "Pedido demasiado grande" });
@@ -304,7 +312,7 @@ app.post("/api/chat", clinicRoute(async (rt, req, res) => {
   try {
     // Misma entrada que el webhook de WhatsApp (channels/inbound.ts); solo cambia el canal.
     const r = await receiveMessage(rt.bot, {
-      channel: "web", from: sessionId, text: text.trim(), source: typeof source === "string" && source ? source.slice(0, 40) : null,
+      channel: "web", from: sessionId, text: text.trim(), source: typeof source === "string" && source ? source.slice(0, 40) : null, lineId,
     });
     res.json({
       messages: r.messages,

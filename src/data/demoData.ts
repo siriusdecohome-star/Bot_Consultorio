@@ -471,5 +471,16 @@ export function buildDemoData(clinic: ClinicProfile, now: Date, seed = 7): DemoD
     });
   }
 
+  // Línea de WhatsApp de cada conversación: los pacientes de ortodoncia escriben a la línea del
+  // profesional (si la clínica la tiene); el resto, a la línea general.
+  const general = clinic.lines.find((l) => l.active && !l.professionalId) ?? null;
+  const byProf = new Map(clinic.lines.filter((l) => l.active && l.professionalId).map((l) => [l.professionalId!, l.id]));
+  for (const p of data.patients) {
+    const prof = data.appointments.find((a) => a.patientId === p.id && a.professionalId && byProf.has(a.professionalId))?.professionalId;
+    const lineId = (prof && byProf.get(prof)) || (p.tags.includes("Ortodoncia") && [...byProf.values()][0]) || general?.id || null;
+    p.lineId = lineId;
+    for (const c of data.conversations) if (c.patientId === p.id) c.lineId = lineId;
+  }
+
   return data;
 }

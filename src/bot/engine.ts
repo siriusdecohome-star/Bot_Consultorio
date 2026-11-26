@@ -1,5 +1,5 @@
 import { kb, privacyLine, privacyNotice } from "../data/knowledge.js";
-import { withClinic } from "../clinics/context.js";
+import { currentClinic, withClinic } from "../clinics/context.js";
 import type { ClinicProfile } from "../clinics/types.js";
 import { config } from "../config.js";
 import type { LlmProvider, ToolCallLog } from "../llm/types.js";
@@ -12,6 +12,7 @@ import type { WaitlistService } from "./waitlist.js";
 import { withinOpeningHours } from "../services/calendar.js";
 import { closeConversation, reopenConversation } from "./conversationState.js";
 import { activeMenu, isMenuRequest, matchMenuOption, menuInteractive, type Interactive } from "./menu.js";
+import { lineById, lineContext } from "../clinics/lines.js";
 
 export interface IncomingMessage {
   channel: Channel;
@@ -22,6 +23,8 @@ export interface IncomingMessage {
   source?: string | null;
   /** Nombre del perfil de WhatsApp, para saludar (puede no ser el nombre real). */
   profileName?: string | null;
+  /** Línea de WhatsApp que recibió el mensaje (real o simulada). */
+  lineId?: string | null;
 }
 
 export interface BotReply {
@@ -161,6 +164,13 @@ export class BotEngine {
     if (profileName && patient.profileName !== profileName) patient = await this.store.updatePatient(patient.id, { profileName });
     const conv = await this.store.getOrCreateConversation(patient, msg.channel);
     const at = this.clock().toISOString();
+    // Línea por la que escribió: la conversación y los avisos siguientes salen por ella.
+    const line = lineById(currentClinic(), msg.lineId);
+    if (line && conv.lineId !== line.id) {
+      if (conv.lineId && conv.messages.length) conv.messages.push({ role: "system", text: `El paciente ahora escribe por la línea «${line.name}».`, at });
+      conv.lineId = line.id;
+    }
+    if (line && patient.lineId !== line.id) patient = await this.store.updatePatient(patient.id, { lineId: line.id });
     conv.messages.push({ role: "patient", text: msg.text, at });
     // El paciente volvió a escribir en una conversación cerrada: se reabre.
     reopenConversation(conv, at);
@@ -265,6 +275,7 @@ export class BotEngine {
           (config.privacyMode === "inline" ? ` Cierre con esta línea exacta: «${privacyLine}»` : "")
         : "",
       patient.source ? `Llegó por: ${patient.source}.` : "",
+      lineContext(currentClinic(), lineById(currentClinic(), conv.lineId)),
       reminderNote,
     ].filter(Boolean).join("\n");
 

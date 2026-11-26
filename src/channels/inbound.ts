@@ -20,10 +20,12 @@ export interface InboundMessage {
   profileName?: string | null;
   /** Origen del lead (link de la promo). */
   source?: string | null;
+  /** Línea que recibió el mensaje: real (webhook, por el número de Meta) o simulada (simulador). */
+  lineId?: string | null;
 }
 
 export function receiveMessage(bot: BotEngine, m: InboundMessage): Promise<BotReply> {
-  return bot.handle({ channel: m.channel, userId: m.from, text: m.text, source: m.source ?? null, profileName: m.profileName ?? null });
+  return bot.handle({ channel: m.channel, userId: m.from, text: m.text, source: m.source ?? null, profileName: m.profileName ?? null, lineId: m.lineId ?? null });
 }
 
 /** Envía por WhatsApp las respuestas del motor (el último mensaje con su menú de botones o lista, si tiene). */

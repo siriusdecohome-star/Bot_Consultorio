@@ -58,11 +58,13 @@ export function parseWebhook(body: any): InboundWhatsApp[] {
 export interface WhatsAppTarget {
   bot: BotEngine;
   sender: WhatsAppSender;
+  /** Línea que recibió el mensaje: la conversación queda asociada y la respuesta sale por ella. */
+  lineId?: string | null;
 }
 
 export interface WebhookOptions {
   /**
-   * Multiempresa: devuelve la clínica según el número que recibió el mensaje.
+   * Multiempresa y multilínea: devuelve la clínica y la línea según el número que recibió el mensaje.
    * null = número desconocido (se ignora el mensaje).
    */
   route?: (phoneNumberId: string | null) => WhatsAppTarget | null;
@@ -132,7 +134,7 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
     }
   });
 
-  async function handle(m: InboundWhatsApp, { bot, sender }: WhatsAppTarget) {
+  async function handle(m: InboundWhatsApp, { bot, sender, lineId }: WhatsAppTarget) {
     await sender.markReadAndTyping(m.id);
     if (m.text === null) {
       await sender.sendText(m.from, "Por ahora solo puedo leer mensajes de texto. ¿Me escribe su consulta, por favor? 🙏");
@@ -140,7 +142,7 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
     }
     log(`← ${mask(m.from)}: ${m.text.slice(0, 80)}`);
     // Misma entrada que el simulador (channels/inbound.ts); solo cambia el canal.
-    const reply = await receiveMessage(bot, { channel: "whatsapp", from: `+${m.from}`, text: m.text, source: m.source, profileName: m.name });
+    const reply = await receiveMessage(bot, { channel: "whatsapp", from: `+${m.from}`, text: m.text, source: m.source, profileName: m.name, lineId: lineId ?? null });
     await deliverWhatsApp(sender, m.from, reply);
     const ms = reply.metric ? `${reply.metric.latencyMs} ms` : "";
     log(`→ ${mask(m.from)}: ${reply.messages.length} mensaje(s) ${ms}`);

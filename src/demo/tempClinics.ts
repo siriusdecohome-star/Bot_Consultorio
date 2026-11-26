@@ -4,6 +4,7 @@ import type { AuthBackend, AuthResult } from "../auth.js";
 import { buildRuntimes, clinicToRow, type ClinicRuntime } from "../clinics/registry.js";
 import type { ClinicProfile } from "../clinics/types.js";
 import { config } from "../config.js";
+import { sonrisaLines } from "../data/clinics/index.js";
 import { defaultSettings } from "../data/clinics/settings.js";
 import type { LlmProvider } from "../llm/types.js";
 import type { Services } from "../services/factory.js";
@@ -80,7 +81,9 @@ export class DemoService {
     const id = `${DEMO_PREFIX}${randomBytes(5).toString("hex")}`;
     const profile: ClinicProfile = {
       ...structuredClone(t),
-      id, primary: false, whatsappPhoneNumberId: null, calendarTag: id,
+      id, primary: false, calendarTag: id,
+      // Solo líneas simuladas: la demo no tiene número de WhatsApp.
+      lines: sonrisaLines(id, null),
       professionals: t.professionals.map((p) => ({ ...structuredClone(p), calendar: "interno" as const })),
       settings: defaultSettings(),
       expiresAt: new Date(now.getTime() + this.limits.hours * 3_600_000).toISOString(),

@@ -101,6 +101,8 @@ button.kpi:hover { border-color: var(--accent); }
 .pill.muted { background: #1c3529; color: var(--muted); }
 .pill.info { background: #0f2c42; color: var(--info); }
 .ch { font-size: 12px; color: var(--muted); }
+.ch.line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.ib-tools #conv-line { margin-top: 6px; }
 .tag-chip { display: inline-flex; align-items: center; gap: 3px; background: #1a3328; color: #cfe3d7; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; padding: 1px 8px; margin: 1px 3px 1px 0; white-space: nowrap; }
 .tag-chip button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 0 0 2px; font-size: 13px; line-height: 1; }
 .tag-chip button:hover { color: var(--bad); }

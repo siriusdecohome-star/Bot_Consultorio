@@ -61,7 +61,7 @@ const SERIES = ["#3987e5", "#d95926"];
 
 const state = {
   date: null, clinic: null, role: null, email: null, view: "bandeja",
-  convFilter: "activas", showMore: false, openConv: null, convSig: "", profileDirty: false,
+  convFilter: "activas", convLine: "", lines: [], showMore: false, openConv: null, convSig: "", profileDirty: false,
   patFilter: "todos", statsDays: 30, weekFrom: null, agDays: 7, agenda: null,
   knowledge: null, canEdit: false, testerSession: null,
 };
@@ -152,7 +152,7 @@ function goToConversation(id) {
 let qTimer;
 async function loadInbox() {
   const q = $("#conv-q").value.trim();
-  const d = await api(`/conversations?filtro=${state.convFilter}${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+  const d = await api(`/conversations?filtro=${state.convFilter}${q ? `&q=${encodeURIComponent(q)}` : ""}${state.convLine ? `&linea=${encodeURIComponent(state.convLine)}` : ""}`);
   renderFilters(d.counts);
   renderInboxList(d.conversations);
   setBadge(d.counts.esperando);
@@ -177,6 +177,19 @@ $("#conv-more").addEventListener("click", () => {
   if (!state.showMore && MORE_FILTERS.some(([f]) => f === state.convFilter)) state.convFilter = "activas";
   loadInbox().catch((err) => toast(err.message, true));
 });
+/** Líneas de WhatsApp de la clínica: el filtro aparece solo si hay más de una. */
+async function loadLines() {
+  try { state.lines = (await api("/lines")).lines; } catch { state.lines = []; }
+  const sel = $("#conv-line");
+  sel.innerHTML = `<option value="">Todas las líneas</option>` + state.lines.map((l) => `<option value="${esc(l.id)}">${esc(l.label)}</option>`).join("");
+  if (!state.lines.some((l) => l.id === state.convLine)) state.convLine = "";
+  sel.value = state.convLine;
+  sel.hidden = state.lines.length < 2;
+}
+$("#conv-line").addEventListener("change", (e) => {
+  state.convLine = e.target.value;
+  loadInbox().catch((err) => toast(err.message, true));
+});
 $("#conv-q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(() => loadInbox().catch(() => {}), 250); });
 
 const WHO = { patient: "", bot: "Bot: ", human: "Recepción: " };
@@ -188,7 +201,7 @@ function renderInboxList(list) {
       <div class="conv-main">
         <div class="conv-top"><span class="who">${esc(name)}</span><span class="when">${esc(fShort(c.lastAt))}</span></div>
         <div class="last">${esc(WHO[c.lastRole] ?? "")}${esc(c.lastText)}</div>
-        <div class="conv-meta">${statePill(c.state)}<span class="ch">${esc(CH[c.channel] ?? c.channel)}</span>${c.tags.slice(0, 2).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join("")}</div>
+        <div class="conv-meta">${statePill(c.state)}<span class="ch">${esc(CH[c.channel] ?? c.channel)}</span>${c.line ? `<span class="ch line" title="Línea ${esc(c.line.label)}">📞 ${esc(c.line.name)}</span>` : ""}${c.tags.slice(0, 2).map((t) => `<span class="tag-chip">${esc(t)}</span>`).join("")}</div>
       </div>
     </li>`;
   }).join("") : empty(state.convFilter === "esperando" ? "No hay conversaciones esperando respuesta. 🎉" : "No hay conversaciones con este filtro.");
@@ -225,6 +238,7 @@ async function openConv(id, { keepScroll = false } = {}) {
   $("#c-sub").innerHTML = [
     statePill(c.state),
     esc(CH[c.channel] ?? c.channel),
+    c.line ? `línea ${esc(c.line.label)}` : "",
     c.assignedTo ? `atiende ${esc(c.assignedTo)}` : "",
     c.closedReason ? `cerrada (${esc(c.closedReason)})` : "",
   ].filter(Boolean).join(" · ");
@@ -237,6 +251,7 @@ async function openConv(id, { keepScroll = false } = {}) {
   $("#reply-hint").textContent = c.state === "bot"
     ? "Al responder, la conversación pasa a una persona y el bot deja de contestar."
     : c.state === "cerrada" ? "Al responder, la conversación se reabre." : "";
+  if (c.line) $("#reply-hint").textContent = `${$("#reply-hint").textContent} La respuesta sale por la línea «${c.line.name}».`.trim();
   if (first || !state.profileDirty) renderProfile($("#profile"), c.patient, c.appointments, { conversationId: c.id });
 }
 
@@ -1414,15 +1429,17 @@ async function init() {
     try { TZ = (await (await fetch(`/api/config?clinica=${encodeURIComponent(state.clinic ?? "")}`)).json()).timezone ?? undefined; } catch {}
   };
   await applyClinic();
+  await loadLines();
   sel.addEventListener("change", async () => {
     state.clinic = sel.value;
     try { localStorage.setItem("panel-clinic", state.clinic); } catch {}
-    Object.assign(state, { date: null, weekFrom: null, testerSession: null, openConv: null, convSig: "", agenda: null });
+    Object.assign(state, { date: null, weekFrom: null, testerSession: null, openConv: null, convSig: "", agenda: null, convLine: "" });
     closeDrawer();
     $("#chat").hidden = true;
     $("#chat-empty").hidden = false;
     $("#profile").innerHTML = '<p class="ib-empty-small">La ficha del paciente aparece al abrir una conversación.</p>';
     await applyClinic();
+    await loadLines();
     showView(state.view);
     refreshBadge();
   });
@@ -1446,7 +1463,7 @@ init().catch((e) => ($("#updated").textContent = `error: ${e.message}`));
 const CLARIFY = "En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.";
 const TOUR = [
   { view: "bandeja", title: "Bienvenido a tu clínica de prueba", text: `Sos administrador de una copia de la clínica de ejemplo, con 30 días de datos. Nadie más la ve y se borra sola en 24 horas.\n\n${CLARIFY}`, action: "chat" },
-  { view: "bandeja", target: ".ib-list", title: "1. Escribile al asistente", text: "En la pestaña del chat escribí «Hola» o tocá «📅 Sacar un turno». Tu conversación aparece en esta bandeja en unos segundos.", wait: true, action: "chat" },
+  { view: "bandeja", target: ".ib-list", title: "1. Escribile al asistente", text: "En la pestaña del chat escribí «Hola» o tocá «📅 Sacar un turno». Tu conversación aparece en esta bandeja en unos segundos, con la línea a la que escribiste. Arriba del chat podés cambiar de línea: la de «Ortodoncia · Dr. Ríos» te ofrece primero a ese doctor.", wait: true, action: "chat" },
   { view: "bandeja", target: ".ib-chat", title: "2. La conversación", text: "Cada mensaje dice quién lo escribió. Probá «Tomar conversación» y respondé: tu mensaje llega a la pestaña del chat y el bot deja de contestar. «Devolver al bot» lo reactiva." },
   { view: "bandeja", target: "#profile-pane", title: "3. La ficha del paciente", text: "Corregí el nombre real, agregá una etiqueta o una nota y guardá: el cambio se ve en el chat, la agenda y la lista de pacientes." },
   { view: "agenda", target: "#cal", title: "4. La agenda", text: "Si reservaste en el chat, tu turno está acá. Pasá a «Día» para ver una columna por profesional y tocá un turno para confirmarlo o cancelarlo." },

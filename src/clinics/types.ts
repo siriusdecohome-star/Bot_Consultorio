@@ -121,14 +121,32 @@ export interface ClinicSettings {
   rules: FollowupRule[];
 }
 
+/** Línea de WhatsApp de una clínica (ver clinics/lines.ts). */
+export interface WhatsAppLine {
+  id: string;
+  clinicId: string;
+  /** Nombre que ve el equipo en la bandeja, p. ej. «Recepción» u «Ortodoncia · Dr. Ríos». */
+  name: string;
+  kind: "cloud" | "simulada";
+  /** «Identificador del número de teléfono» de Meta (solo las líneas reales). */
+  phoneNumberId: string | null;
+  /** Número visible, solo para mostrar (opcional). */
+  displayPhone: string | null;
+  /** Línea de un profesional: el bot lo ofrece primero. */
+  professionalId: string | null;
+  /** Línea de un área (texto libre). */
+  area: string | null;
+  active: boolean;
+}
+
 export interface ClinicProfile {
   /** slug, p. ej. "sonrisa-clara" */
   id: string;
   name: string;
   timezone: string;
   slotMinutes: number;
-  /** "Identificador del número de teléfono" de Meta; null = solo simulador */
-  whatsappPhoneNumberId: string | null;
+  /** Líneas de WhatsApp: números reales de la Cloud API y líneas simuladas de la demo. */
+  lines: WhatsAppLine[];
   /** Valor de la etiqueta `clinic` en los eventos de Google Calendar */
   calendarTag: string;
   /** La clínica principal también ve como ocupados los eventos sin etiqueta del calendario compartido. */

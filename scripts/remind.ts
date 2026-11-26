@@ -25,7 +25,7 @@ const runtimes = buildRuntimes({
   whatsappFor: (id) => (config.whatsapp.token ? new WhatsAppCloudClient(config.whatsapp.token, id) : null),
 });
 // WhatsApp real: la clínica que tiene el número de prueba (la principal).
-const rt = [...runtimes.values()].find((r) => r.profile.whatsappPhoneNumberId) ?? [...runtimes.values()][0]!;
+const rt = [...runtimes.values()].find((r) => r.whatsapp) ?? [...runtimes.values()][0]!;
 const store = rt.store;
 const service = rt.reminders;
 console.log(`Clínica: ${rt.profile.name}`);

@@ -57,6 +57,10 @@ button { font: inherit; cursor: pointer; }
 .clinic-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .clinic-pick select { background: var(--panel); color: var(--text); border: 1px solid var(--panel-line); border-radius: 999px; padding: 6px 10px; font: inherit; cursor: pointer; }
 .clinic-pick select option { color: #111; }
+.line-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.line-pick[hidden] { display: none; }
+.line-pick select { background: var(--panel); color: var(--text); border: 1px solid var(--panel-line); border-radius: 999px; padding: 6px 10px; font: inherit; cursor: pointer; }
+.line-pick select option { color: #111; }
 body.rec .clinic-pick { display: none; }
 .chip-btn.on { background: #3a0f0f; border-color: var(--cancel); color: #ffd2d2; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); user-select: none; }

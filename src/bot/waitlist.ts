@@ -98,7 +98,7 @@ export class WaitlistService {
       });
       if (sameDay.length) continue;
       const msg = offerMessage(e, start, this.offerMinutes, prof.name);
-      await this.notifier.send(patient.channel, patient.phone, msg);
+      await this.notifier.send(patient.channel, patient.phone, msg, patient.lineId);
       const conv = await this.store.getOrCreateConversation(patient, patient.channel);
       conv.messages.push({ role: "bot", text: msg.text, at: this.clock().toISOString(), meta: { kind: "waitlist_offer", waitlistId: e.id, slot, professionalId: prof.id } });
       conv.privacyShown = true;

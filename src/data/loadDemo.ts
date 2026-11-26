@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import type { ClinicProfile } from "../clinics/types.js";
 import { withClinic } from "../clinics/context.js";
+import { lineToRow } from "../clinics/lines.js";
 import type { CalendarService } from "../services/calendar.js";
 import type { Store } from "../services/store.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -84,14 +85,17 @@ export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarSer
     const professionals = () => insertAll("professionals", "profesionales", missing, (p) => ({
       id: p.id, clinic_id: c, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours, treatments: p.treatments, calendar: p.calendar, active: p.active,
     }));
+    // Líneas de WhatsApp (solo clínica nueva; en las existentes las carga el seed). Antes que pacientes
+    // y conversaciones, que las referencian, y después de los profesionales.
+    const lines = () => insertAll("whatsapp_lines", "líneas de WhatsApp", opts.fresh ? clinic.lines : [], lineToRow);
     const patients = () => insertAll("patients", "pacientes", data.patients, (p) => ({
       id: p.id, clinic_id: c, phone: p.phone, name: p.name, profile_name: p.profileName, contact_phone: p.contactPhone,
-      notes: p.notes, tags: p.tags, channel: p.channel, source: p.source, created_at: p.createdAt,
+      notes: p.notes, tags: p.tags, channel: p.channel, source: p.source, line_id: p.lineId ?? null, created_at: p.createdAt,
     }));
     const conversations = () => insertAll("conversations", "conversaciones", data.conversations, (v) => ({
       id: v.id, clinic_id: c, patient_id: v.patientId, channel: v.channel, llm_provider: v.llmProvider, messages: v.messages,
       privacy_shown: true, handed_off: v.handedOff, bot_paused: v.botPaused, assigned_to: v.assignedTo, closed_at: v.closedAt,
-      closed_reason: v.closedReason, created_at: v.createdAt, updated_at: v.updatedAt,
+      closed_reason: v.closedReason, line_id: v.lineId ?? null, created_at: v.createdAt, updated_at: v.updatedAt,
     }));
     const appointments = () => insertAll("appointments", "turnos", data.appointments, (a) => ({
       id: a.id, clinic_id: c, patient_id: a.patientId, patient_name: a.patientName, treatment: a.treatment, professional_id: a.professionalId, start_at: a.start, end_at: a.end,
@@ -114,11 +118,11 @@ export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarSer
       from_time: e.fromTime, to_time: e.toTime, reason: e.reason, created_by: e.createdBy, notified_at: e.notifiedAt, created_at: e.createdAt,
     }), 1000);
     if (opts.fresh) {
-      // Orden por claves foráneas: profesionales y pacientes → turnos, lista de espera, excepciones y
+      // Orden por claves foráneas: profesionales → líneas → pacientes → turnos, lista de espera, excepciones y
       // conversaciones → derivaciones. Las métricas no dependen de nada.
       await Promise.all([
         metrics(),
-        Promise.all([professionals(), patients()]).then(() => Promise.all([
+        professionals().then(lines).then(patients).then(() => Promise.all([
           appointments(), waitlist(), exceptions(), conversations().then(handoffs),
         ])),
       ]);

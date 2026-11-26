@@ -289,6 +289,13 @@ export class MockProvider implements LlmProvider {
       if (has(t, "turno", "cita", "agendar", "reservar", "sacar", "quiero ir", "disponib", "lugar") || (day && mem.step === "idle" && has(t, "puedo", "tiene", "hay"))) {
         mem.treatment = treatmentOf(t) ?? mem.treatment;
         const time = timeIn(t);
+        // Línea de un profesional (p. ej. «Ortodoncia · Dr. Ríos»): si no pidió otra cosa, se le ofrece ese profesional.
+        const linePro = input.turnContext.match(/línea del profesional (.+?) \(id (\S+), ([^)]+)\)/);
+        if (linePro && !mem.treatment && !mem.specialty && !mem.profId) {
+          mem.specialty = linePro[3];
+          mem.profId = linePro[2];
+          if (!day && !time) return offer(now, now.plus({ days: 4 }), franja(t), `¡Con gusto! 📅 {dia} tengo estos horarios libres con ${linePro[1]}:`);
+        }
         // Sin tratamiento ni fecha: primero la especialidad (si hay más de una), después el profesional.
         if (!mem.treatment && !mem.specialty && !day && !time) {
           const r = await call("listar_profesionales", {});

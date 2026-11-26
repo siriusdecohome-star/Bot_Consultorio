@@ -30,7 +30,8 @@
     "test:inbox": "tsx tests/inbox.ts",
     "test:doctors": "tsx tests/doctors.ts",
     "test:followups": "tsx tests/followups.ts",
-    "test:demo": "tsx tests/demo.ts"
+    "test:demo": "tsx tests/demo.ts",
+    "test:lines": "tsx tests/lines.ts"
   },
   "keywords": [],
   "author": "",

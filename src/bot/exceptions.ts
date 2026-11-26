@@ -50,7 +50,7 @@ export async function notifyAffected(store: Store, notifier: Notifier, e: Profes
     const msg = rescheduleMessage(a, e, prof);
     try {
       if (patient.id.startsWith("demo_")) out.demo++;
-      else { await notifier.send(patient.channel, patient.phone, msg); out.sent++; }
+      else { await notifier.send(patient.channel, patient.phone, msg, patient.lineId); out.sent++; }
       const conv = await store.getOrCreateConversation(patient, patient.channel);
       conv.messages.push({ role: "bot", text: msg.text, at: clock().toISOString(), options: msg.buttons, meta: { kind: "reschedule_request", appointmentId: a.id, reason: e.reason } });
       conv.privacyShown = true;

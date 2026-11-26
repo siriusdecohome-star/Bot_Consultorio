@@ -16,6 +16,7 @@ import { createServices } from "../src/services/factory.js";
 import { systemClock, toLocal } from "../src/services/time.js";
 import { demoClinics, CLINIC_A } from "../src/data/clinics/index.js";
 import { clinicToRow } from "../src/clinics/registry.js";
+import { lineToRow } from "../src/clinics/lines.js";
 import { withClinic } from "../src/clinics/context.js";
 import { ClinicCalendar } from "../src/services/calendar.js";
 import { loadDemoSupabase, loadExampleDocument } from "../src/data/loadDemo.js";
@@ -42,6 +43,11 @@ const pr = await db.from("professionals").upsert(clinics.flatMap((c) => c.profes
 }))), { onConflict: "clinic_id,id" });
 if (pr.error) throw new Error(`profesionales: ${pr.error.message}. ¿Ejecutó supabase/schema.sql?`);
 console.log(`Profesionales guardados: ${clinics.map((c) => `${c.name}: ${c.professionals.length}`).join(" · ")}`);
+
+// Líneas de WhatsApp (el número de prueba de Meta de la clínica A y las líneas simuladas).
+const ln = await db.from("whatsapp_lines").upsert(clinics.flatMap((c) => c.lines.map(lineToRow)), { onConflict: "id" });
+if (ln.error) throw new Error(`líneas de WhatsApp: ${ln.error.message}. ¿Ejecutó supabase/schema.sql?`);
+console.log(`Líneas de WhatsApp: ${clinics.map((c) => `${c.name}: ${c.lines.map((l) => `${l.name} (${l.kind})`).join(", ")}`).join(" · ")}`);
 
 if (process.argv.includes("--sin-ejemplos")) {
   console.log("Solo clínicas (--sin-ejemplos): no se cargaron datos de ejemplo.");
