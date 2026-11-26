@@ -7,7 +7,7 @@ import { withDefaults } from "../data/clinics/settings.js";
 import type { LlmProvider } from "../llm/types.js";
 import { ClinicCalendar, type CalendarService } from "../services/calendar.js";
 import type { Services } from "../services/factory.js";
-import { ChannelNotifier, type Notifier, type WebOutbox } from "../services/notifier.js";
+import { ChannelNotifier, type Notifier, type Outbox } from "../services/notifier.js";
 import type { Store } from "../services/store.js";
 import type { SupabaseStore } from "../services/supabaseStore.js";
 import type { Clock } from "../services/time.js";
@@ -45,20 +45,25 @@ export function clinicToRow(c: ClinicProfile) {
 /**
  * Clínicas de la instalación. Con Supabase se leen de la tabla `clinics`
  * (las carga `npm run seed`); en memoria son las dos de ejemplo.
+ * `only`: una sola clínica (carga bajo demanda en otra instancia); [] si no existe.
  */
-export async function loadClinics(services: Services): Promise<ClinicProfile[]> {
-  if (services.storeKind !== "supabase") return demoClinics();
+export async function loadClinics(services: Services, only?: string): Promise<ClinicProfile[]> {
+  if (services.storeKind !== "supabase") return only ? demoClinics().filter((c) => c.id === only) : demoClinics();
   const db = (services.store as SupabaseStore).client;
-  const { data, error } = await db.from("clinics").select("*").order("is_primary", { ascending: false }).order("id");
+  const scoped = (q: any, col: string) => (only ? q.eq(col, only) : q);
+  const { data, error } = await scoped(db.from("clinics").select("*"), "id").order("is_primary", { ascending: false }).order("id");
   if (error) throw new Error(`No se pudieron leer las clínicas: ${error.message}. ¿Ejecutó supabase/schema.sql?`);
+  if (only && !data?.length) return [];
   if (!data?.length) {
     console.warn("⚠ La tabla clinics está vacía: se usan las clínicas de ejemplo en memoria. Ejecute npm run seed.");
     return demoClinics();
   }
   // Profesionales de cada clínica (tabla professionals). Si una clínica no tiene, se usan los de ejemplo.
-  const { data: profs, error: e2 } = await db.from("professionals").select("*").order("created_at");
+  const [{ data: profs, error: e2 }, { data: lines, error: e3 }] = await Promise.all([
+    scoped(db.from("professionals").select("*"), "clinic_id").order("created_at"),
+    scoped(db.from("whatsapp_lines").select("*"), "clinic_id").order("created_at"),
+  ]);
   if (e2) throw new Error(`No se pudieron leer los profesionales: ${e2.message}. ¿Ejecutó supabase/schema.sql?`);
-  const { data: lines, error: e3 } = await db.from("whatsapp_lines").select("*").order("created_at");
   if (e3) throw new Error(`No se pudieron leer las líneas de WhatsApp: ${e3.message}. ¿Ejecutó supabase/schema.sql?`);
   const demo = new Map(demoClinics().map((c) => [c.id, c.professionals]));
   return data.map((r: any) => {
@@ -94,7 +99,7 @@ export interface RuntimeOptions {
   clinics: ClinicProfile[];
   provider: LlmProvider;
   clock: Clock;
-  outbox?: WebOutbox;
+  outbox?: Outbox;
   /** Crea el cliente de WhatsApp para el número de una línea (null = no se puede enviar). */
   whatsappFor?: (phoneNumberId: string) => WhatsAppSender | null;
   /** false = no cambia la clínica por defecto (al sumar una clínica temporal de la demo). */

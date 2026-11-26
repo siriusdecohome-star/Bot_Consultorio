@@ -8,7 +8,7 @@ import { sonrisaLines } from "../data/clinics/index.js";
 import { defaultSettings } from "../data/clinics/settings.js";
 import type { LlmProvider } from "../llm/types.js";
 import type { Services } from "../services/factory.js";
-import type { WebOutbox } from "../services/notifier.js";
+import type { Outbox } from "../services/notifier.js";
 import type { SupabaseStore } from "../services/supabaseStore.js";
 import type { Clock } from "../services/time.js";
 
@@ -32,7 +32,7 @@ export interface DemoOptions {
   provider: LlmProvider;
   fallback: LlmProvider;
   clock: Clock;
-  outbox?: WebOutbox;
+  outbox?: Outbox;
   auth: AuthBackend;
   /** Clínica de ejemplo que se copia. */
   template: ClinicProfile;
@@ -67,15 +67,36 @@ export class DemoService {
     return [...this.o.runtimes.values()].map((r) => r.profile).filter(isTempClinic);
   }
 
+  private get db() {
+    return this.o.services.storeKind === "supabase" ? (this.o.services.store as SupabaseStore).client : null;
+  }
+
+  /**
+   * Demos abiertas y demos de esta IP en el día. Con Supabase se cuentan en la base
+   * (en Vercel cada pedido puede caer en otra instancia); en memoria, en esta instancia.
+   */
+  private async counts(owner: string, now: Date) {
+    const dayAgo = now.getTime() - 86_400_000;
+    if (!this.db) {
+      const open = this.active().filter((p) => !p.expiresAt || new Date(p.expiresAt) > now).length;
+      return { open, mine: (this.byIp.get(owner) ?? []).filter((t) => t > dayAgo).length };
+    }
+    const [a, b] = await Promise.all([
+      this.db.from("clinics").select("id", { count: "exact", head: true }).gt("expires_at", now.toISOString()),
+      this.db.from("clinics").select("id", { count: "exact", head: true }).eq("demo_owner", owner).gte("created_at", new Date(dayAgo).toISOString()),
+    ]);
+    if (a.error || b.error) throw new Error(`No se pudieron contar las demos: ${(a.error ?? b.error)!.message}`);
+    return { open: a.count ?? 0, mine: b.count ?? 0 };
+  }
+
   /** Crea la clínica temporal, la carga con datos de ejemplo y devuelve la sesión del visitante. */
   async start(ip: string, secure: boolean): Promise<{ clinicId: string; session: AuthResult }> {
     if (!this.limits.enabled) throw new DemoLimitError("La demo pública está desactivada.");
-    if (this.active().length >= this.limits.maxActive) throw new DemoLimitError("Hay muchas demos abiertas en este momento. Probá de nuevo en un rato.");
     const owner = createHash("sha256").update(`${ip}|${config.panel.sessionSecret}`).digest("hex").slice(0, 24);
     const now = this.o.clock();
-    const dayAgo = now.getTime() - 86_400_000;
-    const mine = (this.byIp.get(owner) ?? []).filter((t) => t > dayAgo);
-    if (mine.length >= this.limits.perIpPerDay) throw new DemoLimitError("Llegaste al límite de demos por hoy. Podés seguir usando la que ya abriste.");
+    const { open, mine } = await this.counts(owner, now);
+    if (open >= this.limits.maxActive) throw new DemoLimitError("Hay muchas demos abiertas en este momento. Probá de nuevo en un rato.");
+    if (mine >= this.limits.perIpPerDay) throw new DemoLimitError("Llegaste al límite de demos por hoy. Podés seguir usando la que ya abriste.");
 
     const t = this.o.template;
     const id = `${DEMO_PREFIX}${randomBytes(5).toString("hex")}`;
@@ -92,7 +113,7 @@ export class DemoService {
     const { services } = this.o;
     if (services.storeKind === "supabase") {
       const db = (services.store as SupabaseStore).client;
-      const r = await db.from("clinics").insert({ ...clinicToRow(profile), demo_owner: owner });
+      const r = await db.from("clinics").insert({ ...clinicToRow(profile), demo_owner: owner, created_at: now.toISOString() });
       if (r.error) throw new Error(`No se pudo crear la clínica de la demo: ${r.error.message}`);
     }
     const rt = buildRuntimes({
@@ -107,7 +128,7 @@ export class DemoService {
         ? loadDemoSupabase((services.store as SupabaseStore).client, null, profile, now, { fresh: true })
         : loadDemoMemory(rt.store, rt.calendar, profile, now);
       const [session] = await Promise.all([this.o.auth.demoLogin(id, secure), data, loadExampleDocument(rt.store)]);
-      this.byIp.set(owner, [...mine, now.getTime()]);
+      this.byIp.set(owner, [...(this.byIp.get(owner) ?? []), now.getTime()]);
       return { clinicId: id, session };
     } catch (err) {
       await this.remove(profile).catch(() => undefined);
@@ -117,18 +138,21 @@ export class DemoService {
 
   /** Borra las clínicas temporales vencidas (datos en cascada, visitantes y su motor). */
   async cleanup(): Promise<number> {
-    const now = this.o.clock().getTime();
-    let n = 0;
-    for (const p of this.active()) {
-      if (p.expiresAt && new Date(p.expiresAt).getTime() <= now) {
-        await this.remove(p);
-        n++;
-      }
+    const now = this.o.clock();
+    // Con Supabase se buscan en la base: también las que creó otra instancia.
+    let ids: string[];
+    if (this.db) {
+      const r = await this.db.from("clinics").select("id").lte("expires_at", now.toISOString());
+      if (r.error) throw new Error(`No se pudieron buscar las demos vencidas: ${r.error.message}`);
+      ids = (r.data ?? []).map((x: any) => x.id);
+    } else {
+      ids = this.active().filter((p) => p.expiresAt && new Date(p.expiresAt) <= now).map((p) => p.id);
     }
-    return n;
+    for (const id of ids) await this.remove({ id });
+    return ids.length;
   }
 
-  private async remove(p: ClinicProfile) {
+  private async remove(p: Pick<ClinicProfile, "id">) {
     await this.o.auth.forgetDemo(p.id).catch(() => undefined);
     if (this.o.services.storeKind === "supabase") {
       const db = (this.o.services.store as SupabaseStore).client;

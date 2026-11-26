@@ -17,7 +17,49 @@ El servidor es un proceso de Node.js que tiene que estar **siempre encendido**, 
 | **VPS** (cualquier proveedor, Ubuntu + Node 20 + `pm2` o `systemd`) | Control total, costo fijo bajo | Hay que mantener el sistema y el HTTPS (Caddy o Nginx) |
 | **PC propia + túnel con nombre de Cloudflare** | Gratis, URL fija | La PC tiene que quedar encendida; solo sirve para demos |
 
-**Recomendación:** para un portafolio o una demo, Render. Para un consultorio real, el plan pago chico de Render o Railway, o un VPS.
+| **Vercel + cron de Supabase** (funciones sin servidor) | Plan gratuito sin «dormirse», HTTPS, despliegue con cada push | Sin procesos permanentes: el trabajo periódico lo dispara el cron de Supabase cada 5 minutos (ver la sección siguiente) |
+
+**Recomendación:** para el portafolio y la demo pública, Vercel con el cron de Supabase. Para un consultorio real, Vercel (plan pago, que permite uso comercial) o un servidor siempre encendido (Render, Railway, VPS).
+
+## 1 bis. Vercel paso a paso
+
+El mismo código corre en Vercel sin cambios de configuración en el código:
+- `api/index.ts` es la función, y `vercel.json` envía todas las rutas a ella. `public/` se sirve como archivos estáticos.
+- No hay temporizadores. **Cada 5 minutos el cron de Supabase** llama a `POST /api/cron/tick`, que hace:
+  - recordatorios, seguimientos y lista de espera;
+  - cierre por inactividad;
+  - borrado de las demos vencidas;
+  - limpieza del estado compartido.
+- **El webhook de WhatsApp** responde 200 a Meta al instante y termina de procesar con `waitUntil`.
+- **Lo que tiene que ser común a todas las instancias vive en Supabase:**
+  - los mensajes de Meta ya procesados (tabla `processed_messages`, para no responder dos veces);
+  - los límites por IP (`rate_hits`);
+  - la bandeja del simulador (`web_outbox`);
+  - el conteo de demos.
+- **Datos al día entre instancias:** si un pedido llega a una instancia que no conoce la clínica (por ejemplo, una demo creada en otra), la carga de la base. Además, relee cada clínica cada 20 segundos, para que se vean los cambios hechos desde el panel en otra instancia.
+- **Documentos:** en Vercel se pueden subir hasta **3 MB** por documento. El cuerpo de un pedido tiene un máximo de 4,5 MB y el archivo viaja en base64.
+
+Pasos:
+1. **Supabase:** ejecutá el `supabase/schema.sql` actualizado (crea las tablas del estado compartido).
+2. **Vercel:** Add New → Project → importá el repositorio de GitHub. El preset de framework queda en **Other**; el resto lo toma de `vercel.json`.
+3. **Variables de entorno** (Settings → Environment Variables): las de la sección 4, más `CRON_SECRET`, un texto aleatorio largo generado con:
+
+   ```powershell
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+
+   Vercel define `NODE_ENV=production`. Con ese valor el servidor no arranca si falta algo crítico, y el error se ve en los registros de la función.
+4. **Región:** en Settings → Functions, elegí la región más cercana a la de tu proyecto de Supabase. Cada mensaje hace varias consultas a la base, así que la distancia se nota.
+5. **Desplegá** y abrí `https://<tu-proyecto>.vercel.app/api/config`. Tiene que responder con las clínicas.
+6. **Cron:** en Supabase, Project Settings → Vault → **Add new secret**, con el nombre `cron_secret` y el mismo valor de `CRON_SECRET`. Después ejecutá `supabase/cron.sql` en el SQL Editor, con la dirección de tu proyecto en lugar de `TU-PROYECTO`.
+7. **Webhook de Meta:** cambiá la URL de devolución de llamada a `https://<tu-proyecto>.vercel.app/webhook/whatsapp` (sección 6).
+8. **Prueba de varias instancias contra la base**, desde tu PC:
+
+   ```powershell
+   npm run test:vercel
+   ```
+
+> ⚠ **A verificar en la documentación de Vercel:** el plan Hobby es para uso personal y no comercial. También conviene confirmar la duración máxima de las funciones (en `vercel.json` está en 60 s) y el límite del cuerpo de los pedidos.
 
 ## 2. Supabase de producción (separado del de pruebas)
 
@@ -65,6 +107,7 @@ Cargalas en el panel del proveedor (Environment). Nunca en el repositorio.
 | `WHATSAPP_TOKEN` (permanente), `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_WABA_ID` | Canal WhatsApp |
 | `PANEL_SESSION_SECRET` | Texto aleatorio largo, generado con `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `PORT` | Lo define la plataforma; no hace falta tocarlo |
+| `CRON_SECRET` | Solo en Vercel: clave con la que el cron de Supabase llama a `/api/cron/tick` (guardala también en el Vault de Supabase) |
 
 ## 5. Crear el servicio (ejemplo con Render)
 

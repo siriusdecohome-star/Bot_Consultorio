@@ -6,7 +6,9 @@ import { chunkText } from "./services/textSearch.js";
  * Las librerías se cargan solo cuando se usan.
  */
 
-export const MAX_DOC_BYTES = 8 * 1024 * 1024;
+// En Vercel el cuerpo de un pedido tiene un máximo de 4,5 MB y el archivo viaja en base64 (+33 %): 3 MB.
+export const MAX_DOC_BYTES = (process.env.VERCEL ? 3 : 8) * 1024 * 1024;
+export const MAX_DOC_MB = MAX_DOC_BYTES / (1024 * 1024);
 
 export type DocKind = "pdf" | "docx" | "texto";
 

@@ -413,6 +413,7 @@ npm test
 | `test:doctors` | 15 | Doble reserva por profesional (incluida la superposición con duraciones distintas), «el primero disponible», horario por profesional, excepciones (día, franja, vacaciones) con turnos afectados y aviso por el bot, reprogramación desde el aviso, flujo especialidad → profesional → horario, lista de espera por profesional y edición desde el panel |
 | `test:followups` | 12 | Reglas activadas y desactivadas (72 h, 24 h, 2 h, 1 h, después del turno, reactivación, leads), una sola regla por turno sin duplicados, reserva dentro de la ventana, horario de silencio, textos editados y edición desde el panel |
 | `test:demo` | 8 | Clínica temporal con datos y sesión de admin solo de esa clínica, aislamiento, simulador por la misma entrada que WhatsApp sin tocar Google Calendar, tope de IA por visita y diario con paso al modo sin IA, límites y borrado al vencer |
+| `test:vercel` | 6 | Contra Supabase, con dos instancias como en Vercel: demo creada en una y usada desde la otra, límite por IP compartido, bandeja del simulador entregada una vez, aviso de Meta repetido procesado una vez, `/api/cron/tick` con clave y borrado de la demo vencida desde la otra instancia |
 | `test:lines` | 11 | Webhook que elige clínica y línea por el número que recibió el mensaje y responde por esa línea, número desconocido ignorado, cambio de línea con nota, respuesta del panel y recordatorios por la línea del paciente, línea de un profesional que lo ofrece primero, línea y filtro en la bandeja, líneas simuladas sin envíos a Meta |
 | `test:inbox` | 23 | Cada estado de la bandeja y sus transiciones, cierre automático y reapertura, contadores coherentes, ficha editable, nombre real con herramienta, menú con botones o lista, horarios editados que limitan los turnos ofrecidos, datos de ejemplo |
 | `test:cases` | 8 | Los casos de calidad, con tiempo de respuesta y costo → [reports/test-results.md](reports/test-results.md) |
@@ -463,6 +464,9 @@ Todo es **ficticio**, aunque con aspecto real: nombres y mensajes variados, tel�
 ## Despliegue
 
 Guía paso a paso (servidor, variables, Supabase de producción, webhook fijo, usuarios reales y verificación): **[docs/despliegue.md](docs/despliegue.md)**.
+
+- **Vercel + cron de Supabase:** funciones sin servidor; el trabajo periódico entra por `POST /api/cron/tick` ([supabase/cron.sql](supabase/cron.sql)). Lo que tiene que ser común a todas las instancias (mensajes de Meta ya procesados, límites por IP, bandeja del simulador, demos) vive en Supabase.
+- `npm run test:vercel` levanta dos instancias contra la base y lo comprueba.
 
 ## Estructura
 

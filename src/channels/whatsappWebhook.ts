@@ -67,7 +67,17 @@ export interface WebhookOptions {
    * Multiempresa y multilínea: devuelve la clínica y la línea según el número que recibió el mensaje.
    * null = número desconocido (se ignora el mensaje).
    */
-  route?: (phoneNumberId: string | null) => WhatsAppTarget | null;
+  route?: (phoneNumberId: string | null) => WhatsAppTarget | null | Promise<WhatsAppTarget | null>;
+  /**
+   * Marca un mensaje como procesado: true la primera vez, false si es un reintento de Meta.
+   * Por defecto, en memoria; con varias instancias (Vercel), en la base (services/shared.ts).
+   */
+  claim?: (messageId: string) => Promise<boolean>;
+  /**
+   * Trabajo que sigue después de responder 200 a Meta. En un servidor común basta con no
+   * esperarlo; en Vercel hay que pasarlo a waitUntil para que la función no se congele.
+   */
+  defer?: (work: Promise<unknown>) => void;
   /** Una sola clínica (pruebas): se usa para cualquier número. */
   bot?: BotEngine;
   sender?: WhatsAppSender;
@@ -80,19 +90,20 @@ type RawRequest = Request & { rawBody?: Buffer };
 
 export function createWhatsAppRouter(opts: WebhookOptions): Router {
   const log = opts.log ?? ((m) => console.log(`[whatsapp] ${m}`));
-  const resolve = (phoneNumberId: string | null): WhatsAppTarget | null =>
+  const resolve = async (phoneNumberId: string | null): Promise<WhatsAppTarget | null> =>
     opts.route ? opts.route(phoneNumberId) : opts.bot && opts.sender ? { bot: opts.bot, sender: opts.sender } : null;
   const router = Router();
 
   // Meta reintenta los avisos si no respondemos rápido: evitamos procesar dos veces el mismo mensaje.
   const seen = new Map<string, number>();
-  const isDuplicate = (id: string) => {
+  const claim = opts.claim ?? (async (id: string) => {
     const now = Date.now();
     for (const [k, t] of seen) if (now - t > 60 * 60 * 1000) seen.delete(k);
-    if (seen.has(id)) return true;
+    if (seen.has(id)) return false;
     seen.set(id, now);
-    return false;
-  };
+    return true;
+  });
+  const defer = opts.defer ?? ((work: Promise<unknown>) => void work);
 
   // Mensajes del mismo paciente se procesan en orden, uno por vez.
   const chains = new Map<string, Promise<void>>();
@@ -124,13 +135,17 @@ export function createWhatsAppRouter(opts: WebhookOptions): Router {
     res.sendStatus(200);
 
     for (const m of parseWebhook(req.body)) {
-      if (isDuplicate(m.id)) continue;
-      const target = resolve(m.phoneNumberId);
-      if (!target) {
-        log(`mensaje para un número sin clínica asignada (${m.phoneNumberId ?? "?"}): ignorado`);
-        continue;
-      }
-      void enqueue(`${m.phoneNumberId}:${m.from}`, () => handle(m, target)).catch((err) => log(`error procesando ${m.id}: ${(err as Error).message}`));
+      defer((async () => {
+        // Reintento de Meta: ya se respondió. Si la base no responde, se atiende igual (mejor un duplicado que un silencio).
+        const first = await claim(m.id).catch((err) => { log(`no se pudo verificar si ${m.id} era repetido: ${(err as Error).message}`); return true; });
+        if (!first) return;
+        const target = await resolve(m.phoneNumberId);
+        if (!target) {
+          log(`mensaje para un número sin clínica asignada (${m.phoneNumberId ?? "?"}): ignorado`);
+          return;
+        }
+        await enqueue(`${m.phoneNumberId}:${m.from}`, () => handle(m, target));
+      })().catch((err) => log(`error procesando ${m.id}: ${(err as Error).message}`)));
     }
   });
 

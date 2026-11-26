@@ -2,8 +2,11 @@ import { config as loadEnv } from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Raíz del proyecto: el .env y las rutas relativas se resuelven desde acá, no desde la carpeta actual. */
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+/**
+ * Raíz del proyecto: el .env y las rutas relativas se resuelven desde acá, no desde la carpeta actual.
+ * En Vercel la función corre desde la raíz del proyecto (process.cwd()), con public/ y private/ incluidos.
+ */
+export const ROOT = process.env.VERCEL ? process.cwd() : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // ENV_FILE elige otro archivo (p. ej. .env.test). En un servidor las variables suelen venir del panel del proveedor.
 loadEnv({ path: path.resolve(ROOT, process.env.ENV_FILE?.trim() || ".env"), quiet: true });
 
@@ -104,6 +107,10 @@ export const config = {
   },
 
   /** Demo pública: clínica temporal por visita y tope de IA. */
+  /** Cron de Supabase → POST /api/cron/tick con «Authorization: Bearer CRON_SECRET» (en Vercel no hay temporizadores). */
+  cron: {
+    secret: env("CRON_SECRET"),
+  },
   demo: {
     enabled: env("PUBLIC_DEMO", "true") !== "false",
     hours: num("DEMO_HOURS", 24),

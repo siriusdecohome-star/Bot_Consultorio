@@ -22,7 +22,7 @@ import { professionalById, treatmentIdOf } from "./services/availability.js";
 import type { ClinicSettings, Professional } from "./clinics/types.js";
 import { upcomingSends } from "./bot/reminders.js";
 import { config as appConfig } from "./config.js";
-import { docKind, MAX_DOC_BYTES, toChunks } from "./documents.js";
+import { docKind, MAX_DOC_BYTES, MAX_DOC_MB, toChunks } from "./documents.js";
 import { toCsv, type Cell } from "./csv.js";
 import { localKey, toLocal, TZ, type Clock } from "./services/time.js";
 
@@ -37,6 +37,8 @@ type PanelRequest = Request & { user?: PanelUser; membership?: Membership; runti
 export interface PanelOptions {
   auth: AuthBackend;
   runtimes: Map<string, ClinicRuntime>;
+  /** Clínica por id, cargándola o actualizándola si hace falta (varias instancias, ver clinics/directory.ts). */
+  resolve?: (clinicId: string) => Promise<ClinicRuntime | null>;
   clock: Clock;
   /** Base para el usuario y la clínica: con Supabase, con el token del usuario (RLS). */
   storeFor: (user: PanelUser, clinicId: string) => Store;
@@ -71,26 +73,26 @@ const p95 = (xs: number[]) => {
 
 export function createPanelRouter(opts: PanelOptions): Router {
   const { clock } = opts;
+  const resolve = opts.resolve ?? (async (id: string) => opts.runtimes.get(id) ?? null);
   const r = Router();
   r.use(requireSession(opts.auth));
 
   /** Quién es el usuario y en qué clínicas trabaja (para el selector del panel). */
-  r.get("/me", (req: PanelRequest, res) => {
+  r.get("/me", async (req: PanelRequest, res) => {
     const u = req.user!;
+    const found = await Promise.all(u.memberships.map(async (m) => ({ m, rt: await resolve(m.clinicId).catch(() => null) })));
     res.json({
       email: u.email,
-      clinics: u.memberships
-        .filter((m) => opts.runtimes.has(m.clinicId))
-        .map((m) => ({ id: m.clinicId, name: opts.runtimes.get(m.clinicId)!.profile.name, role: m.role })),
+      clinics: found.filter((x) => x.rt).map(({ m, rt }) => ({ id: m.clinicId, name: rt!.profile.name, role: m.role })),
     });
   });
 
   // El resto de las rutas trabaja sobre una clínica del usuario (por defecto, la primera).
-  r.use((req: PanelRequest, res, next) => {
+  r.use(async (req: PanelRequest, res, next) => {
     const u = req.user!;
     const wanted = typeof req.query.clinic === "string" ? req.query.clinic : u.memberships[0]?.clinicId;
     const m = u.memberships.find((x) => x.clinicId === wanted);
-    const rt = m ? opts.runtimes.get(m.clinicId) : undefined;
+    const rt = m ? await resolve(m.clinicId).catch(() => null) : null;
     if (!m || !rt) return res.status(403).json({ error: "No tiene acceso a esa clínica." });
     req.membership = m;
     req.runtime = rt;
@@ -764,7 +766,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
   });
 
   r.get("/documents", async (req: PanelRequest, res) => {
-    res.json({ documents: await req.store!.listDocuments(), canEdit: req.membership!.role === "admin" });
+    res.json({ documents: await req.store!.listDocuments(), canEdit: req.membership!.role === "admin", maxMb: MAX_DOC_MB });
   });
 
   r.post("/documents", async (req: PanelRequest, res) => {
@@ -775,7 +777,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
     if (!name || !kind) return res.status(400).json({ error: "Formato no soportado: suba un PDF, un Word (.docx) o un texto (.txt/.md)." });
     const buf = Buffer.from(String(req.body?.dataBase64 ?? ""), "base64");
     if (!buf.length) return res.status(400).json({ error: "Archivo vacío" });
-    if (buf.length > MAX_DOC_BYTES) return res.status(413).json({ error: "El archivo supera los 8 MB." });
+    if (buf.length > MAX_DOC_BYTES) return res.status(413).json({ error: `El archivo supera los ${MAX_DOC_MB} MB.` });
     try {
       const chunks = await toChunks(buf, kind);
       if (!chunks.length) return res.status(400).json({ error: "No se pudo leer texto del archivo (¿es un PDF escaneado como imagen?)." });

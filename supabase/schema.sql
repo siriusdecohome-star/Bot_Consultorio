@@ -326,6 +326,33 @@ insert into whatsapp_lines (id, clinic_id, name, kind, phone_number_id)
 alter table conversations add column if not exists line_id text references whatsapp_lines(id) on delete set null;
 alter table patients      add column if not exists line_id text references whatsapp_lines(id) on delete set null;
 
+-- ============================================================
+-- Estado común a todas las instancias (Vercel): lo usa solo el servidor, con la clave secreta.
+-- RLS activado y sin políticas: el panel (authenticated) y anon no pueden leerlo.
+-- ============================================================
+-- Mensajes de WhatsApp ya procesados: Meta reintenta los avisos y no hay que responder dos veces.
+create table if not exists processed_messages (
+  id  text primary key,
+  at  timestamptz not null default now()
+);
+-- Límites de uso por IP (chat del simulador y login del panel).
+create table if not exists rate_hits (
+  key  text not null,
+  at   timestamptz not null default now()
+);
+create index if not exists rate_hits_by_key on rate_hits (key, at);
+-- Bandeja del simulador: mensajes que el bot envía por su cuenta (recordatorios, ofertas) a una sesión web.
+create table if not exists web_outbox (
+  id          bigserial primary key,
+  box         text not null,            -- «clínica|sesión»
+  message     jsonb not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists web_outbox_by_box on web_outbox (box);
+alter table processed_messages enable row level security;
+alter table rate_hits          enable row level security;
+alter table web_outbox         enable row level security;
+
 -- Las políticas se recrean para que el archivo se pueda volver a ejecutar.
 drop policy if exists clinics_read  on clinics;
 drop policy if exists clinics_admin on clinics;

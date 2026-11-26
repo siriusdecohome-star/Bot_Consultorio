@@ -23,7 +23,13 @@ export interface Notifier {
 }
 
 /** Bandeja de salida del simulador web: la página la lee con GET /api/outbox. */
-export class WebOutbox {
+export interface Outbox {
+  push(box: string, msg: OutboundMessage): void | Promise<void>;
+  take(box: string): OutboundMessage[] | Promise<OutboundMessage[]>;
+}
+
+/** Bandeja en memoria (una sola instancia; en Vercel se usa la de la base, ver services/shared.ts). */
+export class WebOutbox implements Outbox {
   private boxes = new Map<string, OutboundMessage[]>();
   push(userId: string, msg: OutboundMessage) {
     const list = this.boxes.get(userId) ?? [];
@@ -41,7 +47,7 @@ export class ChannelNotifier implements Notifier {
   constructor(private deps: {
     /** Un cliente fijo, o uno por línea. */
     whatsapp?: WhatsAppSender | ((lineId: string | null | undefined) => WhatsAppSender | null) | null;
-    web?: WebOutbox | null;
+    web?: Outbox | null;
     /** Prefijo de la bandeja web: separa las sesiones del simulador de cada clínica. */
     webPrefix?: string;
     log?: (m: string) => void;
@@ -50,7 +56,7 @@ export class ChannelNotifier implements Notifier {
   async send(channel: Channel, userId: string, msg: OutboundMessage, lineId?: string | null) {
     const log = this.deps.log ?? ((m: string) => console.log(`[avisos] ${m}`));
     if (channel === "web" && this.deps.web) {
-      this.deps.web.push(`${this.deps.webPrefix ?? ""}${userId}`, msg);
+      await this.deps.web.push(`${this.deps.webPrefix ?? ""}${userId}`, msg);
       return "enviado" as const;
     }
     const w = this.deps.whatsapp;

@@ -1204,6 +1204,8 @@ async function loadCosts() {
 const form = $("#kb-form");
 async function loadLearning() {
   const [k, docs] = await Promise.all([api("/knowledge"), api("/documents")]);
+  state.docMaxMb = docs.maxMb ?? 8;
+  $("#doc-max").textContent = `PDF, Word o texto · hasta ${state.docMaxMb} MB`;
   state.knowledge = k.knowledge;
   state.canEdit = k.canEdit;
   fillKnowledge(k.knowledge);
@@ -1322,7 +1324,8 @@ $("#doc-file").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   e.target.value = "";
   if (!file) return;
-  if (file.size > 8 * 1024 * 1024) return toast("El archivo supera los 8 MB", true);
+  const maxMb = state.docMaxMb ?? 8;
+  if (file.size > maxMb * 1024 * 1024) return toast(`El archivo supera los ${maxMb} MB`, true);
   const up = $("#doc-upload");
   up.classList.add("busy");
   up.querySelector("span").textContent = "Procesando…";
