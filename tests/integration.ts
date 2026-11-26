@@ -69,7 +69,7 @@ try {
   const d = (await eb("crear_cita", { nombre_completo: "Otro Paciente (demo)", tratamiento: "Consulta", inicio: slot1 })) as any;
   assert.equal(d.ok, false);
   assert.equal(d.error, "horario_ocupado");
-  step(`doble reserva rechazada; alternativas: ${d.alternativas.slice(0, 3).map((x: string) => x.slice(11)).join(", ")}`);
+  step(`doble reserva rechazada; alternativas: ${d.alternativas.slice(0, 3).map((x: any) => (typeof x === "string" ? x : x.inicio).slice(11)).join(", ")}`);
 
   // 4. Reprogramar
   const m = (await ea("reprogramar_cita", { cita_id: r.cita.id, nuevo_inicio: slot2 })) as any;

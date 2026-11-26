@@ -19,7 +19,7 @@ Cada clínica tiene sus datos separados en **Supabase con RLS** y un **panel** p
 
 ## Contenido
 
-[Qué hace](#qué-hace) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Multidoctores y calendarios](#multidoctores-y-calendarios) · [Multiempresa y seguridad](#multiempresa-y-seguridad) · [Stack y decisiones](#stack-y-decisiones) · [Instalación](#instalación-windows--powershell) · [Variables de entorno](#variables-de-entorno) · [Entorno de pruebas y producción](#entorno-de-pruebas-y-producción) · [Uso](#uso) · [Documentos y búsqueda](#documentos-y-búsqueda) · [Pruebas](#pruebas) · [Costos](#costos) · [Datos de ejemplo](#datos-de-ejemplo) · [Despliegue](#despliegue) · [Estructura](#estructura) · [Seguridad y privacidad](#seguridad-y-privacidad)
+[Qué hace](#qué-hace) · [Capturas](#capturas) · [Arquitectura](#arquitectura) · [Multidoctores y calendarios](#multidoctores-y-calendarios) · [Seguimientos y recordatorios](#seguimientos-y-recordatorios) · [Multiempresa y seguridad](#multiempresa-y-seguridad) · [Stack y decisiones](#stack-y-decisiones) · [Instalación](#instalación-windows--powershell) · [Variables de entorno](#variables-de-entorno) · [Entorno de pruebas y producción](#entorno-de-pruebas-y-producción) · [Uso](#uso) · [Documentos y búsqueda](#documentos-y-búsqueda) · [Pruebas](#pruebas) · [Costos](#costos) · [Datos de ejemplo](#datos-de-ejemplo) · [Despliegue](#despliegue) · [Estructura](#estructura) · [Seguridad y privacidad](#seguridad-y-privacidad)
 
 ## Qué hace
 
@@ -30,7 +30,7 @@ Cada clínica tiene sus datos separados en **Supabase con RLS** y un **panel** p
 | Varios profesionales | Cada uno con especialidad, tratamientos que realiza con su duración propia, color, horario semanal y excepciones (día, franja o vacaciones). Agenda con vista del día en una columna por profesional. |
 | Evita la doble reserva | Por profesional: validación en el código **y** una restricción de exclusión en PostgreSQL que rechaza dos turnos activos del mismo profesional que se superpongan (aunque duren distinto). |
 | Excepciones de agenda | Al cargar una ausencia, el panel lista los turnos afectados y ofrece avisar por el bot; el paciente toca **Reprogramar** o **Cancelar turno**. |
-| Recordatorios | 24 h y 2 h antes, con botones **Confirmo · Cambiar horario · Cancelar**. |
+| Seguimientos y recordatorios | Reglas por clínica editables en el panel: 72, 24, 2 y 1 h antes del turno (o las que se agreguen), X días después, reactivación cada N días y seguimiento de leads. Cada una con texto, botones y plantilla; horario de silencio y sin envíos dobles. Por defecto, 24 h y 2 h con botones **Confirmo · Cambiar horario · Cancelar**. |
 | Lista de espera | Si no hay horario, anota al paciente con su rango y franja. Cuando alguien cancela, le ofrece el hueco por WhatsApp (**Lo tomo · No, gracias**); si no responde a tiempo, pasa al siguiente. |
 | Reactivación | Invita a un control a quien no viene hace 6 meses o más, como máximo una vez cada 90 días. |
 | Seguimiento de leads | Escribe una vez a quien consultó por una promo y no agendó. |
@@ -162,6 +162,22 @@ sequenceDiagram
 
 Conviene confirmar los alcances y el proceso de verificación de la app de Google en la documentación oficial antes de implementarlo; en esta demo no está implementado (la Dra. Méndez usa una cuenta de servicio compartida).
 
+## Seguimientos y recordatorios
+
+Pestaña **Seguimientos** del panel (edita el admin; recepción la ve). Las reglas se guardan por clínica en `clinics.settings` y el servicio de recordatorios ([src/bot/reminders.ts](src/bot/reminders.ts)) las lee en cada revisión (cada minuto), así que un cambio rige enseguida.
+
+| Regla | Cuándo | Por defecto |
+|---|---|---|
+| Antes del turno | X horas antes (72, 24, 2, 1 o la que se agregue) | 24 h y 2 h activas; 72 h y 1 h cargadas pero apagadas |
+| Después del turno | X días después de un turno con asistencia | 1 día, apagada |
+| Reactivación | A quien no viene hace X días, repetida cada N días | 180 días, cada 90 |
+| Lead de la promo | X horas después de que dejó de escribir sin agendar (una vez) | 20 h |
+
+- **Texto y botones** editables, con campos que se completan solos: `{nombre}`, `{cuando}`, `{fecha}`, `{hora}`, `{tratamiento}`, `{profesional}`, `{clinica}`, `{direccion}`, `{promo}`, `{meses}`. Las reglas «antes» admiten un texto distinto si el paciente ya confirmó (sin botones).
+- **Sin envíos dobles:** cada turno guarda las reglas ya enviadas u omitidas (`appointments.reminders_sent`). Si varias reglas caen juntas, sale solo la más cercana al turno; si el turno se reservó dentro de la ventana de una regla, esa se omite porque la confirmación de la reserva ya cumple esa función.
+- **Horario de silencio** (por defecto de 21:00 a 08:00): los avisos esperan a que termine. Las ofertas de la lista de espera no esperan, porque el horario se puede perder. La duración de esas ofertas también se ajusta por clínica.
+- **WhatsApp real:** si pasaron más de 24 h desde el último mensaje del paciente, el mensaje sale con la plantilla de Meta de la regla (`recordatorio_turno`, `seguimiento_post_turno`, `reactivacion_paciente`, `seguimiento_promo`): llega el texto de la plantilla con los datos del paciente, no el texto editado. Las plantillas se crean con `npm run wa:templates` y su estado se ve con `npm run wa:templates -- --status`.
+
 ## Multiempresa y seguridad
 
 - **Tablas:** `clinics` guarda el perfil y el conocimiento de cada clínica; `clinic_members` vincula usuarios de Supabase Auth con su clínica y su rol (`admin` o `recepcion`). Todas las demás tablas llevan `clinic_id`.
@@ -241,6 +257,7 @@ Todas van en `.env` (local) o en el panel del proveedor (servidor). Nunca en el 
 | `CLINIC_TIMEZONE`, `SLOT_MINUTES` | Zona horaria y duración del turno de la clínica principal (al cargarla con `npm run seed`) | `America/Argentina/Buenos_Aires`, 30 |
 | `REMINDERS_*`, `FOLLOWUP_AFTER_HOURS` | Recordatorios y seguimiento | Activados, cada 60 s, a las 20 h |
 | `WAITLIST_OFFER_MINUTES` | Cuánto se guarda un horario ofrecido | 30 |
+| `WHATSAPP_TEMPLATE_RESCHEDULE`, `WHATSAPP_TEMPLATE_POST_VISIT` | Plantillas de reprogramación y de seguimiento posterior | `turno_reprogramar`, `seguimiento_post_turno` |
 | `CONVERSATION_IDLE_HOURS` | Horas sin mensajes para cerrar una conversación (se reabre si el paciente escribe) | 24 |
 | `REACTIVATION_ENABLED`, `REACTIVATION_MONTHS`, `REACTIVATION_MAX_PER_SWEEP` | Reactivación | Activada, 6 meses, 5 por revisión |
 | `PRIVACY_NOTICE` | `inline`, `separate` u `off` | `inline` |
@@ -333,6 +350,7 @@ npm test
 | `test:panel` | 19 | Bandeja (tomar, pausar, devolver), agenda, pacientes, estadísticas, costos, conocimiento, PDF con búsqueda, probador, CSV |
 | `test:waitlist` | 10 | Lista de espera (ofrecer, aceptar, rechazar, vencer, horario tomado) y reactivación |
 | `test:doctors` | 14 | Doble reserva por profesional (incluida la superposición con duraciones distintas), «el primero disponible», horario por profesional, excepciones (día, franja, vacaciones) con turnos afectados y aviso por el bot, reprogramación desde el aviso, flujo especialidad → profesional → horario, lista de espera por profesional y edición desde el panel |
+| `test:followups` | 12 | Reglas activadas y desactivadas (72 h, 24 h, 2 h, 1 h, después del turno, reactivación, leads), una sola regla por turno sin duplicados, reserva dentro de la ventana, horario de silencio, textos editados y edición desde el panel |
 | `test:inbox` | 23 | Cada estado de la bandeja y sus transiciones, cierre automático y reapertura, contadores coherentes, ficha editable, nombre real con herramienta, menú con botones o lista, horarios editados que limitan los turnos ofrecidos, datos de ejemplo |
 | `test:cases` | 8 | Los casos de calidad, con tiempo de respuesta y costo → [reports/test-results.md](reports/test-results.md) |
 | `test:integration` | 8 pasos | Contra Supabase y Google Calendar reales: reserva, doble reserva, índice por clínica, búsqueda de documentos y **RLS** con la sesión de una recepcionista |
