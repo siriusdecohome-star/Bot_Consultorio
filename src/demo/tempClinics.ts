@@ -99,10 +99,11 @@ export class DemoService {
     this.o.runtimes.set(id, rt);
     try {
       const { loadDemoMemory, loadDemoSupabase, loadExampleDocument } = await import("../data/loadDemo.js");
-      if (services.storeKind === "supabase") await loadDemoSupabase((services.store as SupabaseStore).client, null, profile, now);
-      else await loadDemoMemory(rt.store, rt.calendar, profile, now);
-      await loadExampleDocument(rt.store);
-      const session = await this.o.auth.demoLogin(id, secure);
+      // Datos, documento de ejemplo y sesión del visitante en paralelo: solo dependen de la clínica.
+      const data = services.storeKind === "supabase"
+        ? loadDemoSupabase((services.store as SupabaseStore).client, null, profile, now, { fresh: true })
+        : loadDemoMemory(rt.store, rt.calendar, profile, now);
+      const [session] = await Promise.all([this.o.auth.demoLogin(id, secure), data, loadExampleDocument(rt.store)]);
       this.byIp.set(owner, [...mine, now.getTime()]);
       return { clinicId: id, session };
     } catch (err) {

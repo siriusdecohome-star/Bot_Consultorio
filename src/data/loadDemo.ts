@@ -56,70 +56,75 @@ export async function loadDemoMemory(store: Store, calendar: CalendarService, cl
 /**
  * Supabase: reemplaza los datos de ejemplo (ids demo_…) de una clínica por los 30 días
  * generados. No toca los datos reales (conversaciones de WhatsApp, pruebas).
+ * `fresh`: clínica recién creada (demo pública): no hay nada que borrar ni comparar, y las
+ * tablas que no dependen entre sí se cargan en paralelo para que «Entrar al demo» sea rápido.
  */
-export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarService | null, clinic: ClinicProfile, now: Date): Promise<DemoData> {
+export async function loadDemoSupabase(db: SupabaseClient, calendar: CalendarService | null, clinic: ClinicProfile, now: Date, opts: { fresh?: boolean } = {}): Promise<DemoData> {
   return withClinic(clinic, async () => {
     const data = buildDemoData(clinic, now, demoSeed(clinic));
     const must = (r: { error: { message: string } | null }, what: string) => {
       if (r.error) throw new Error(`${what}: ${r.error.message}`);
     };
-    must(await db.from("patients").delete().eq("clinic_id", clinic.id).like("id", "demo_%"), "borrar ejemplos");
-    must(await db.from("turn_metrics").delete().eq("clinic_id", clinic.id).like("conversation_id", "demo_%"), "borrar métricas de ejemplo");
-    must(await db.from("professional_exceptions").delete().eq("clinic_id", clinic.id).like("id", "demo_%"), "borrar excepciones de ejemplo");
-    // Profesionales de la clínica (si todavía no están; los editados en el panel no se pisan).
-    const { data: existing } = await db.from("professionals").select("id").eq("clinic_id", clinic.id);
-    const have = new Set((existing ?? []).map((p: any) => p.id));
-    const missing = clinic.professionals.filter((p) => !have.has(p.id));
-    if (missing.length) {
-      must(await db.from("professionals").insert(missing.map((p) => ({
-        id: p.id, clinic_id: clinic.id, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours, treatments: p.treatments, calendar: p.calendar, active: p.active,
-      }))), "profesionales");
+    let missing = clinic.professionals;
+    if (!opts.fresh) {
+      must(await db.from("patients").delete().eq("clinic_id", clinic.id).like("id", "demo_%"), "borrar ejemplos");
+      must(await db.from("turn_metrics").delete().eq("clinic_id", clinic.id).like("conversation_id", "demo_%"), "borrar métricas de ejemplo");
+      must(await db.from("professional_exceptions").delete().eq("clinic_id", clinic.id).like("id", "demo_%"), "borrar excepciones de ejemplo");
+      // Profesionales de la clínica (si todavía no están; los editados en el panel no se pisan).
+      const { data: existing } = await db.from("professionals").select("id").eq("clinic_id", clinic.id);
+      const have = new Set((existing ?? []).map((p: any) => p.id));
+      missing = clinic.professionals.filter((p) => !have.has(p.id));
     }
     const ids = calendar ? await calendarEvents(data, calendar, now, clinic) : new Map<string, string>();
     const c = clinic.id;
     const chunks = <T>(xs: T[], n = 300) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
-    for (const part of chunks(data.patients)) {
-      must(await db.from("patients").insert(part.map((p) => ({
-        id: p.id, clinic_id: c, phone: p.phone, name: p.name, profile_name: p.profileName, contact_phone: p.contactPhone,
-        notes: p.notes, tags: p.tags, channel: p.channel, source: p.source, created_at: p.createdAt,
-      }))), "pacientes");
-    }
-    for (const part of chunks(data.conversations)) {
-      must(await db.from("conversations").insert(part.map((v) => ({
-        id: v.id, clinic_id: c, patient_id: v.patientId, channel: v.channel, llm_provider: v.llmProvider, messages: v.messages,
-        privacy_shown: true, handed_off: v.handedOff, bot_paused: v.botPaused, assigned_to: v.assignedTo, closed_at: v.closedAt,
-        closed_reason: v.closedReason, created_at: v.createdAt, updated_at: v.updatedAt,
-      }))), "conversaciones");
-    }
-    for (const part of chunks(data.appointments)) {
-      must(await db.from("appointments").insert(part.map((a) => ({
-        id: a.id, clinic_id: c, patient_id: a.patientId, patient_name: a.patientName, treatment: a.treatment, professional_id: a.professionalId, start_at: a.start, end_at: a.end,
-        status: a.status, calendar_event_id: ids.get(a.id) ?? "", confirmed_by_patient: a.confirmedByPatient,
-        reminder24_sent: a.reminder24Sent, reminder2_sent: a.reminder2Sent, created_at: a.createdAt, cancelled_at: a.cancelledAt ?? null,
-      }))), "turnos");
-    }
-    if (data.handoffs.length) {
-      must(await db.from("handoffs").insert(data.handoffs.map((h) => ({
-        id: h.id, clinic_id: c, conversation_id: h.conversationId, patient_id: h.patientId, reason: h.reason, summary: h.summary, status: h.status, created_at: h.createdAt,
-      }))), "derivaciones");
-    }
-    for (const part of chunks(data.metrics, 500)) {
-      must(await db.from("turn_metrics").insert(part.map((m) => ({
-        clinic_id: c, conversation_id: m.conversationId, provider: m.provider, model: m.model, latency_ms: m.latencyMs, input_tokens: m.inputTokens,
-        output_tokens: m.outputTokens, cache_read_tokens: m.cacheReadTokens, cost_usd: m.costUsd, model_calls: m.modelCalls, tools: m.tools, at: m.at,
-      }))), "métricas");
-    }
-    if (data.waitlist.length) {
-      must(await db.from("waitlist").insert(data.waitlist.map((w) => ({
-        id: w.id, clinic_id: c, patient_id: w.patientId, patient_name: w.patientName, treatment: w.treatment, from_date: w.fromDate, to_date: w.toDate,
-        franja: w.franja, status: w.status, professional_id: w.professionalId, created_at: w.createdAt,
-      }))), "lista de espera");
-    }
-    if (data.exceptions.length) {
-      must(await db.from("professional_exceptions").insert(data.exceptions.map((e) => ({
-        id: e.id, clinic_id: c, professional_id: e.professionalId, kind: e.kind, from_date: e.fromDate, to_date: e.toDate,
-        from_time: e.fromTime, to_time: e.toTime, reason: e.reason, created_by: e.createdBy, notified_at: e.notifiedAt, created_at: e.createdAt,
-      }))), "excepciones");
+    const insertAll = async <T>(table: string, what: string, rows: T[], map: (x: T) => object, n = 300) => {
+      for (const part of chunks(rows, n)) if (part.length) must(await db.from(table).insert(part.map(map)), what);
+    };
+    const professionals = () => insertAll("professionals", "profesionales", missing, (p) => ({
+      id: p.id, clinic_id: c, name: p.name, specialty: p.specialty, color: p.color, hours: p.hours, treatments: p.treatments, calendar: p.calendar, active: p.active,
+    }));
+    const patients = () => insertAll("patients", "pacientes", data.patients, (p) => ({
+      id: p.id, clinic_id: c, phone: p.phone, name: p.name, profile_name: p.profileName, contact_phone: p.contactPhone,
+      notes: p.notes, tags: p.tags, channel: p.channel, source: p.source, created_at: p.createdAt,
+    }));
+    const conversations = () => insertAll("conversations", "conversaciones", data.conversations, (v) => ({
+      id: v.id, clinic_id: c, patient_id: v.patientId, channel: v.channel, llm_provider: v.llmProvider, messages: v.messages,
+      privacy_shown: true, handed_off: v.handedOff, bot_paused: v.botPaused, assigned_to: v.assignedTo, closed_at: v.closedAt,
+      closed_reason: v.closedReason, created_at: v.createdAt, updated_at: v.updatedAt,
+    }));
+    const appointments = () => insertAll("appointments", "turnos", data.appointments, (a) => ({
+      id: a.id, clinic_id: c, patient_id: a.patientId, patient_name: a.patientName, treatment: a.treatment, professional_id: a.professionalId, start_at: a.start, end_at: a.end,
+      status: a.status, calendar_event_id: ids.get(a.id) ?? "", confirmed_by_patient: a.confirmedByPatient,
+      reminder24_sent: a.reminder24Sent, reminder2_sent: a.reminder2Sent, created_at: a.createdAt, cancelled_at: a.cancelledAt ?? null,
+    }));
+    const handoffs = () => insertAll("handoffs", "derivaciones", data.handoffs, (h) => ({
+      id: h.id, clinic_id: c, conversation_id: h.conversationId, patient_id: h.patientId, reason: h.reason, summary: h.summary, status: h.status, created_at: h.createdAt,
+    }), 1000);
+    const metrics = () => insertAll("turn_metrics", "métricas", data.metrics, (m) => ({
+      clinic_id: c, conversation_id: m.conversationId, provider: m.provider, model: m.model, latency_ms: m.latencyMs, input_tokens: m.inputTokens,
+      output_tokens: m.outputTokens, cache_read_tokens: m.cacheReadTokens, cost_usd: m.costUsd, model_calls: m.modelCalls, tools: m.tools, at: m.at,
+    }), 500);
+    const waitlist = () => insertAll("waitlist", "lista de espera", data.waitlist, (w) => ({
+      id: w.id, clinic_id: c, patient_id: w.patientId, patient_name: w.patientName, treatment: w.treatment, from_date: w.fromDate, to_date: w.toDate,
+      franja: w.franja, status: w.status, professional_id: w.professionalId, created_at: w.createdAt,
+    }), 1000);
+    const exceptions = () => insertAll("professional_exceptions", "excepciones", data.exceptions, (e) => ({
+      id: e.id, clinic_id: c, professional_id: e.professionalId, kind: e.kind, from_date: e.fromDate, to_date: e.toDate,
+      from_time: e.fromTime, to_time: e.toTime, reason: e.reason, created_by: e.createdBy, notified_at: e.notifiedAt, created_at: e.createdAt,
+    }), 1000);
+    if (opts.fresh) {
+      // Orden por claves foráneas: profesionales y pacientes → turnos, lista de espera, excepciones y
+      // conversaciones → derivaciones. Las métricas no dependen de nada.
+      await Promise.all([
+        metrics(),
+        Promise.all([professionals(), patients()]).then(() => Promise.all([
+          appointments(), waitlist(), exceptions(), conversations().then(handoffs),
+        ])),
+      ]);
+    } else {
+      await professionals(); await patients(); await conversations(); await appointments();
+      await handoffs(); await metrics(); await waitlist(); await exceptions();
     }
     return data;
   });
