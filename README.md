@@ -317,7 +317,7 @@ Todas van en `.env` (local) o en el panel del proveedor (servidor). Nunca en el 
 | `REMINDERS_*`, `FOLLOWUP_AFTER_HOURS` | Recordatorios y seguimiento | Activados, cada 60 s, a las 20 h |
 | `WAITLIST_OFFER_MINUTES` | Cuánto se guarda un horario ofrecido | 30 |
 | `WHATSAPP_TEMPLATE_RESCHEDULE`, `WHATSAPP_TEMPLATE_POST_VISIT` | Plantillas de reprogramación y de seguimiento posterior | `turno_reprogramar`, `seguimiento_post_turno` |
-| `PUBLIC_DEMO`, `DEMO_HOURS`, `DEMO_MAX_ACTIVE`, `DEMO_PER_IP_PER_DAY` | Demo pública con clínica temporal por visita | `true`, 24, 50, 3 |
+| `PUBLIC_DEMO`, `DEMO_HOURS`, `DEMO_MAX_ACTIVE`, `DEMO_PER_IP_PER_DAY` | Demo pública con clínica temporal por visita | `true`, 24, 100, 20 |
 | `DEMO_AI_PER_VISIT`, `DEMO_AI_DAILY` | Tope de IA real en la demo (luego, modo sin IA) | 20, 300 |
 | `CONVERSATION_IDLE_HOURS` | Horas sin mensajes para cerrar una conversación (se reabre si el paciente escribe) | 24 |
 | `REACTIVATION_ENABLED`, `REACTIVATION_MONTHS`, `REACTIVATION_MAX_PER_SWEEP` | Reactivación | Activada, 6 meses, 5 por revisión |

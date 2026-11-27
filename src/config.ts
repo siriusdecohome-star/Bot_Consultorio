@@ -114,8 +114,8 @@ export const config = {
   demo: {
     enabled: env("PUBLIC_DEMO", "true") !== "false",
     hours: num("DEMO_HOURS", 24),
-    maxActive: num("DEMO_MAX_ACTIVE", 50),
-    perIpPerDay: num("DEMO_PER_IP_PER_DAY", 3),
+    maxActive: num("DEMO_MAX_ACTIVE", 100),
+    perIpPerDay: num("DEMO_PER_IP_PER_DAY", 20),
     aiPerVisit: num("DEMO_AI_PER_VISIT", 20),
     aiDaily: num("DEMO_AI_DAILY", 300),
   },
