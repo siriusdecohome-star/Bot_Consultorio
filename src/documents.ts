@@ -20,8 +20,30 @@ export function docKind(name: string, mime: string): DocKind | null {
   return null;
 }
 
+/**
+ * PDF.js crea al cargarse objetos de dibujo (DOMMatrix, Path2D, ImageData) que en Node vienen
+ * del paquete opcional @napi-rs/canvas. En Vercel ese paquete puede no estar, y PDF.js falla
+ * al importarse aunque solo se quiera el texto. Para extraer texto no se dibuja nada: si
+ * faltan, se definen versiones vacías (no se tocan si ya existen).
+ */
+function textOnlyPdfGlobals() {
+  const g = globalThis as Record<string, unknown>;
+  class DOMMatrixStub {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+    multiplySelf() { return this; }
+    preMultiplySelf() { return this; }
+    translateSelf() { return this; }
+    scaleSelf() { return this; }
+    invertSelf() { return this; }
+  }
+  g.DOMMatrix ??= DOMMatrixStub;
+  g.Path2D ??= class Path2DStub {};
+  g.ImageData ??= class ImageDataStub {};
+}
+
 export async function extractText(buf: Buffer, kind: DocKind): Promise<string> {
   if (kind === "pdf") {
+    textOnlyPdfGlobals();
     const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(buf) });
     try {

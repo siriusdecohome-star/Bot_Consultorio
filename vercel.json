@@ -4,7 +4,7 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{public,private,docs/ejemplos,node_modules/@napi-rs}/**",
+      "includeFiles": "{public,private,docs/ejemplos}/**",
       "maxDuration": 60
     }
   },
