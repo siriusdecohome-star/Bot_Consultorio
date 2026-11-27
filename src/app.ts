@@ -86,7 +86,7 @@ export async function createApp(opts: AppOptions = {}): Promise<App> {
     aiBudgetFor: (p) => demo.budgetFor(p), fallbackProvider: fallback,
   });
   for (const [id, rt] of build(clinics, true)) runtimes.set(id, rt);
-  const directory = new ClinicDirectory(runtimes, { services, clock: systemClock, build: (p) => build([p]).get(p.id)! });
+  const directory = new ClinicDirectory(runtimes, { services, clock: systemClock, ttlMs: Number(process.env.CLINIC_CACHE_MS) || undefined, build: (p) => build([p]).get(p.id)! });
   const primaryId = ([...runtimes.values()].find((r) => r.profile.primary && !isTempClinic(r.profile)) ?? [...runtimes.values()][0]!).profile.id;
 
   // Agenda en memoria: cada clínica arranca con algunos turnos ocupados de ejemplo.

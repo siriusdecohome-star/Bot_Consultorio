@@ -17,6 +17,7 @@ import type { AddressInfo } from "node:net";
 import { createClient } from "@supabase/supabase-js";
 
 process.env.WEB_MAX_MSGS_PER_10MIN = "3";
+process.env.CLINIC_CACHE_MS = "500"; // en producción la demo vence sola; acá se la vence a mano
 process.env.CRON_SECRET ||= `prueba-${randomBytes(12).toString("hex")}`; // solo en este proceso
 const { config } = await import("../src/config.js");
 const { createApp } = await import("../src/app.js");
@@ -105,6 +106,7 @@ try {
     assert.equal((await db.from("clinics").select("id").eq("id", clinicId)).data?.length, 0);
     assert.equal((await db.from("whatsapp_lines").select("id").eq("clinic_id", clinicId)).data?.length, 0);
     for (const m of members) assert.equal((await db.auth.admin.getUserById(m.user_id)).data.user, null, "usuario anónimo borrado");
+    await new Promise((r) => setTimeout(r, 600));
     assert.equal((await fetch(`${url(0)}/api/config?clinic=${clinicId}`)).status, 404, "A ya no la atiende");
     clinicId = "";
   });

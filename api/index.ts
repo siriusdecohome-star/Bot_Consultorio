@@ -25,6 +25,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     console.error("[vercel]", err);
     res.statusCode = 500;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end("El servidor no pudo iniciar. Revisá las variables de entorno en Vercel (ver los registros de la función).");
+    // La lista de variables faltantes no tiene secretos (solo nombres): se muestra para ubicar el problema.
+    const msg = (err as Error)?.message ?? "";
+    const detail = msg.startsWith("No se puede iniciar en producción") ? `
+
+${msg}` : "";
+    res.end(`El servidor no pudo iniciar. Revisá las variables de entorno en Vercel (ver los registros de la función).${detail}`);
   }
 }
