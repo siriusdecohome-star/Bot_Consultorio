@@ -214,6 +214,16 @@ try {
     assert.match(pick.messages.join(" "), /nombre y apellido/);
   });
 
+  await check("Chat: con día y franja pedidos, igual pregunta especialidad/profesional y después respeta ese día", async () => {
+    const q = await say("web:flujo-4", "Quiero sacar un turno para mañana a la mañana");
+    assert.match(q.messages.join(" "), /especialidad/, "primero pregunta la especialidad, no asigna un profesional");
+    let r = await say("web:flujo-4", "1");
+    if (/Con quién prefiere/.test(r.messages.join(" "))) r = await say("web:flujo-4", "1");
+    const text = r.messages.join(" ");
+    assert.match(text, /horarios libres/);
+    for (const h of text.match(/\b\d\d:\d\d\b/g) ?? []) assert.ok(h < "13:00", `franja de la mañana: ${h}`);
+  });
+
   // ---------------- Lista de espera por profesional ----------------
   await check("Lista de espera: quien espera a un profesional no recibe el hueco de otro", async () => {
     const p = await A.store.getOrCreatePatient("web:espera-ríos", "web");

@@ -13,6 +13,8 @@ body {
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif; font-size: 14px;
 }
 button, input, select, textarea { font: inherit; }
+select { color-scheme: dark; }
+select option, select optgroup { background: #0c2219; color: #e8f3ec; }
 a { color: inherit; }
 [hidden] { display: none !important; }
 
@@ -444,14 +446,34 @@ code { background: var(--panel2); border: 1px solid var(--line); border-radius: 
 @media (max-width: 800px) { .rule .two { grid-template-columns: minmax(0, 1fr); } }
 
 /* ================= Recorrido guiado ================= */
-.tour { position: fixed; right: 20px; bottom: 20px; z-index: 40; width: min(380px, calc(100vw - 32px)); background: #0b1d16; border: 1px solid var(--accent);
-  border-radius: 16px; padding: 14px 16px; box-shadow: 0 16px 40px #000a; }
+/* Recorrido guiado: capa que oscurece y bloquea todo salvo el elemento señalado y la tarjeta. */
+#tour-layer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+#tour-layer .tl-block { position: fixed; pointer-events: auto; background: rgba(2, 10, 7, .62); }
+#tour-layer .tl-hole { position: fixed; border-radius: 12px; outline: 2px solid var(--lime); outline-offset: 0; box-shadow: 0 0 0 4px #c8f25a33, 0 0 24px #c8f25a55; transition: all .18s ease; animation: tour-pulse 1.6s ease-in-out infinite; }
+#tour-layer.no-target .tl-hole { display: none; }
+#tour-layer.no-target .tl-block[data-b="t"] { inset: 0 !important; width: auto !important; height: auto !important; }
+#tour-layer.no-target .tl-block:not([data-b="t"]) { display: none; }
+@keyframes tour-pulse { 50% { box-shadow: 0 0 0 7px #c8f25a22, 0 0 30px #c8f25a77; } }
+.tour { position: fixed; z-index: 61; width: min(380px, calc(100vw - 32px)); background: #0b1d16; border: 1px solid var(--lime);
+  border-radius: 16px; padding: 14px 16px; box-shadow: 0 18px 50px #000a; transition: left .2s ease, top .2s ease; }
 .tour h3 { margin: 4px 0 8px; font-size: 16px; }
 .tour p { margin: 0 0 8px; font-size: 13.5px; line-height: 1.5; color: #d6e7dd; }
 .tour .tour-clarify { border-left: 3px solid var(--lime); padding-left: 10px; color: var(--text); }
-.tour .tour-status { color: var(--lime); font-size: 12.5px; min-height: 0; }
-.tour .tour-status:empty { display: none; }
 .tour-top { display: flex; justify-content: space-between; align-items: center; }
 .tour .btn-row { margin: 6px 0 0; justify-content: flex-end; }
-.tour-focus { outline: 2px solid var(--lime) !important; outline-offset: 3px; border-radius: 12px; transition: outline-color .2s; }
-@media (max-width: 800px) { .tour { right: 12px; left: 12px; bottom: 12px; width: auto; } }
+.state-help { margin: 6px 0 0; font-size: 12px; line-height: 1.45; }
+@media (max-width: 800px) { .tour { width: calc(100vw - 24px); } }
+
+/* Resumen en mosaico: las tarjetas se acomodan en columnas según el ancho, sin huecos. */
+.mosaic { columns: 3 380px; column-gap: var(--gap); }
+.mosaic > .card { break-inside: avoid; margin-bottom: var(--gap); display: block; width: 100%; }
+/* Tarjetas plegables */
+.card-head.foldable { cursor: pointer; user-select: none; }
+.card-head.foldable h2 { flex: 1; }
+.fold { order: -1; width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; padding: 0; flex: none; }
+.fold::before { content: "▾"; font-size: 12px; transition: transform .15s ease; }
+.card.folded .fold::before { transform: rotate(-90deg); }
+.card.folded > :not(.card-head) { display: none !important; }
+.card.folded > .card-head { margin-bottom: 0; }
+/* Aprendizaje: Guardar también al final del formulario */
+.kb-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }

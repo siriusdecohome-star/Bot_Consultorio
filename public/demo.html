@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Asistente de WhatsApp para clínicas · Demo</title>
-  <meta name="description" content="Probá el asistente de WhatsApp con IA para clínicas: agenda, bandeja del equipo, profesionales y seguimientos." />
+  <title>Asistente de WhatsApp para agendar citas · Demo</title>
+  <meta name="description" content="Probá el asistente de WhatsApp con IA que responde consultas y agenda citas, con el panel de tu equipo." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2325D366'/%3E%3Cpath fill='white' d='M18 16h28v6H18zm0 13h28v6H18zm0 13h18v6H18z'/%3E%3C/svg%3E" />
   <style>
     :root { --bg: #07130e; --panel: #10281e; --line: #1f3d30; --text: #e8f3ec; --muted: #8fb3a1; --accent: #25d366; --lime: #c8f25a; }
@@ -30,27 +30,20 @@
 </head>
 <body>
   <main>
-    <span class="tag">Demo para clínicas</span>
-    <h1>Un asistente que atiende WhatsApp, agenda turnos y le deja a tu equipo solo lo importante</h1>
-    <p class="lead">Entrás a tu propia copia de una clínica de ejemplo, con 30 días de datos, como administrador. Un recorrido te guía por cada sección: escribile al asistente y mirá cómo aparece todo en el panel.</p>
-    <ul>
-      <li><b>💬 Bandeja del equipo</b>Tomá conversaciones, pausá el bot y respondé desde el panel.</li>
-      <li><b>📅 Agenda por profesional</b>Turnos sin dobles reservas, excepciones y aviso para reprogramar.</li>
-      <li><b>⏰ Seguimientos</b>Recordatorios, seguimiento después del turno y reactivación.</li>
-      <li><b>🧠 Aprendizaje</b>Cambiá precios, horarios o el menú y probalo al instante.</li>
-    </ul>
+    <span class="tag">Demo en vivo · 3 minutos</span>
+    <h1>Un asistente de WhatsApp que responde y agenda citas por vos</h1>
+    <p class="lead">Para cualquier negocio que trabaja con turnos. Probalo como paciente de una clínica de ejemplo y miralo desde el panel de tu equipo: un recorrido te guía paso a paso.</p>
     <div class="cta">
-      <button type="button" id="go">Entrar al demo</button>
-      <span class="note" id="hours">Tu copia se borra sola a las 24 horas.</span>
+      <button type="button" id="go">Empezar la demo</button>
+      <span class="note" id="hours">Tu copia es privada y se borra en 24 horas.</span>
     </div>
     <p class="error" id="err" role="alert"></p>
-    <p class="clarify">En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.</p>
   </main>
   <script>
     const go = document.getElementById("go");
     fetch("/api/demo/status").then((r) => r.json()).then((s) => {
       if (!s.enabled) { go.disabled = true; document.getElementById("err").textContent = "La demo pública no está disponible en este momento."; }
-      else document.getElementById("hours").textContent = `Tu copia se borra sola a las ${s.hours} horas.`;
+      else document.getElementById("hours").textContent = `Tu copia es privada y se borra en ${s.hours} horas.`;
     }).catch(() => {});
     go.addEventListener("click", async () => {
       go.disabled = true;
@@ -60,12 +53,13 @@
         const r = await fetch("/api/demo/start", { method: "POST" });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "No se pudo abrir la demo");
-        try { sessionStorage.setItem("recorrido", JSON.stringify({ step: 0, clinic: d.clinicId })); } catch {}
+        // El recorrido guiado (panel y chat del paciente comparten este estado).
+        try { localStorage.setItem("recorrido", JSON.stringify({ step: "welcome", clinic: d.clinicId })); } catch {}
         location.href = d.panel;
       } catch (e) {
         document.getElementById("err").textContent = e.message;
         go.disabled = false;
-        go.textContent = "Entrar al demo";
+        go.textContent = "Empezar la demo";
       }
     });
   </script>

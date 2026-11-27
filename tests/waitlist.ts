@@ -31,7 +31,9 @@ async function check(name: string, fn: () => Promise<void>) {
   try { await fn(); results.push([name, true]); } catch (e) { results.push([name, false]); console.error(`  ✗ ${name}:`, (e as Error).message); }
 }
 async function book(user: string, name: string, when = "el miércoles a las 10:00") {
-  await say(user, `Quiero sacar un turno para ${when}`);
+  let q = await say(user, `Quiero sacar un turno para ${when}`);
+  // Especialidad y profesional: la opción 1 (Odontología general).
+  for (let i = 0; i < 2 && /especialidad|con quién prefiere/i.test(q.messages.at(-1) ?? ""); i++) q = await say(user, "1");
   const r = await say(user, name);
   assert.match(r.messages.join(" "), /Listo/, `no se pudo reservar para ${name}`);
 }

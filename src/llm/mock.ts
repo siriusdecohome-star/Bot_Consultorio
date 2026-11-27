@@ -29,6 +29,8 @@ interface Memory {
   treatment?: string;
   name?: string;
   rescheduleId?: string;
+  /** Día, franja u hora que pidió antes de elegir profesional: se respetan después. */
+  wanted?: { from: string; to: string; franja: string; time?: string };
 }
 
 const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
@@ -128,6 +130,15 @@ export class MockProvider implements LlmProvider {
       mem.slots = r.horarios.slice(0, 4);
       mem.lastRange = { from: from.toISODate()!, to: to.toISODate()!, franja: fr };
       if (!mem.slots.length) {
+        // Sin lugar en lo pedido: se ofrecen los próximos días (misma franja) antes de rendirse.
+        const next = await call("buscar_horarios_disponibles", {
+          fecha_desde: to.plus({ days: 1 }).toISODate(), fecha_hasta: to.plus({ days: 7 }).toISODate(), franja: fr, ...searchFor(),
+        });
+        mem.slots = next.horarios.slice(0, 4);
+        if (mem.slots.length) {
+          mem.step = "elige_horario";
+          return `En ese rango no me quedan horarios libres. ${dayHeader(mem.slots)} tengo estos:\n\n${slotList(mem.slots)}\n\n¿Cuál le queda mejor? Respóndame con el número. Si prefiere esperar un hueco en la fecha que pidió, lo anoto en la *lista de espera*.`;
+        }
         mem.step = "idle";
         return "No encuentro horarios libres en ese rango. ¿Le busco otro día? Si prefiere, lo anoto en la *lista de espera* y le aviso apenas se libere un turno.";
       }
@@ -135,6 +146,24 @@ export class MockProvider implements LlmProvider {
       return `${intro.replace("{dia}", dayHeader(mem.slots))}\n\n${slotList(mem.slots)}\n\n¿Cuál le queda mejor? Respóndame con el número.`;
     };
 
+    /** Ya eligió profesional: se usa el día, la franja o la hora que había pedido antes (si los dijo). */
+    const afterDoctor = async (who: string): Promise<string> => {
+      const w = mem.wanted;
+      mem.wanted = undefined;
+      if (w?.time) {
+        const key = `${w.from}T${w.time}`;
+        const busy = await checkExact(key);
+        if (busy) return busy;
+        mem.chosen = key;
+        mem.step = "pide_nombre";
+        if (mem.name) return this.book(call, mem);
+        const d = DateTime.fromISO(key, { zone: TZ() }).setLocale("es");
+        return `Perfecto, ${who}. ¡Buenas noticias! El *${d.toFormat("cccc dd/MM 'a las' HH:mm")}* está libre. Para reservarlo, ¿me indica su nombre y apellido?`;
+      }
+      const from = w ? DateTime.fromISO(w.from, { zone: TZ() }) : now;
+      const to = w ? DateTime.fromISO(w.to, { zone: TZ() }) : now.plus({ days: 4 });
+      return offer(from, to, w?.franja ?? "cualquiera", `Perfecto, ${who}. 📅 {dia} tengo estos horarios libres:`);
+    };
     /** Si para lo que necesita atiende más de un profesional, pregunta con quién; si no, ofrece horarios. */
     const askDoctorOrOffer = async (fr = "cualquiera") => {
       const r = await call("listar_profesionales", mem.treatment ? { tratamiento: mem.treatment } : { especialidad: mem.specialty });
@@ -145,6 +174,7 @@ export class MockProvider implements LlmProvider {
         return `¿Con quién prefiere atenderse?\n\n${numbered([...r.profesionales.map((p: any) => `${p.nombre} (${p.atiende.split(",").length > 4 ? "todos los días" : p.atiende.replace(/ \d\d:\d\d-\d\d:\d\d( y \d\d:\d\d-\d\d:\d\d)?/g, "")})`), "El primero disponible"])}`;
       }
       mem.profId = r.profesionales[0]?.id ?? "cualquiera";
+      if (mem.wanted) return afterDoctor(`con ${r.profesionales[0]?.nombre ?? "el profesional"}`);
       return offer(now, now.plus({ days: 3 }), fr, `¡Con gusto! 📅 {dia} tengo estos horarios libres${r.profesionales[0] ? ` con ${r.profesionales[0].nombre}` : ""}:`);
     };
 
@@ -211,7 +241,7 @@ export class MockProvider implements LlmProvider {
       // 1b) Lista de espera: «anóteme», «avíseme si se libera»…
       const waitlist = async (name: string) => {
         const range = parseDay(t, now);
-        const r = mem.lastRange ?? { from: now.toISODate()!, to: now.plus({ days: 7 }).toISODate()!, franja: "cualquiera" };
+        const r = mem.lastRange ?? (mem.wanted ? { from: mem.wanted.from, to: mem.wanted.to, franja: mem.wanted.franja } : { from: now.toISODate()!, to: now.plus({ days: 7 }).toISODate()!, franja: "cualquiera" });
         const x = await call("anotar_lista_espera", {
           nombre_completo: name, tratamiento: mem.treatment ?? "Consulta y diagnóstico",
           fecha_desde: range?.[0].toISODate() ?? r.from, fecha_hasta: range?.[1].toISODate() ?? r.to, franja: has(t, "manana", "tarde") ? franja(t) : r.franja,
@@ -284,7 +314,7 @@ export class MockProvider implements LlmProvider {
         else if (idx === mem.profOptions.length) mem.profId = "cualquiera";
         else return `Disculpe, ¿con quién prefiere?\n\n${numbered([...mem.profOptions.map((p) => p.nombre), "El primero disponible"])}`;
         const who = mem.profId === "cualquiera" ? "el primero disponible" : mem.profOptions.find((p) => p.id === mem.profId)!.nombre;
-        return offer(now, now.plus({ days: 4 }), "cualquiera", `Perfecto, con ${who}. 📅 {dia} tengo estos horarios libres:`);
+        return afterDoctor(`con ${who}`);
       }
 
       // 3) Intención de agendar
@@ -299,8 +329,13 @@ export class MockProvider implements LlmProvider {
           mem.profId = linePro[2];
           if (!day && !time) return offer(now, now.plus({ days: 4 }), franja(t), `¡Con gusto! 📅 {dia} tengo estos horarios libres con ${linePro[1]}:`);
         }
-        // Sin tratamiento ni fecha: primero la especialidad (si hay más de una), después el profesional.
-        if (!mem.treatment && !mem.specialty && !day && !time) {
+        // Día, franja u hora pedidos ahora: se guardan para cuando elija especialidad y profesional.
+        if (!mem.profId && (day || time || franja(t) !== "cualquiera")) {
+          const from = day?.[0] ?? now, to = day?.[1] ?? (day ? day[0] : now.plus({ days: 3 }));
+          mem.wanted = { from: from.toISODate()!, to: to.toISODate()!, franja: franja(t), ...(time ? { time } : {}) };
+        }
+        // Sin tratamiento: primero la especialidad (si hay más de una), después el profesional.
+        if (!mem.treatment && !mem.specialty) {
           const r = await call("listar_profesionales", {});
           if (r.especialidades.length > 1) {
             mem.specialtyOptions = r.especialidades;
@@ -309,7 +344,8 @@ export class MockProvider implements LlmProvider {
           }
         }
         if (!mem.specialty) mem.treatment ??= defaultTreatment();
-        if (!day && !time && !mem.profId) return askDoctorOrOffer(franja(t));
+        // Siempre se pregunta con quién (si atiende más de uno), aunque haya dicho día u hora: se guardan para después.
+        if (!mem.profId) return askDoctorOrOffer(franja(t));
         if (day && time) {
           // Pidió día y hora exactos: si está libre se toma directamente; si no, se explican las alternativas.
           const key = `${day[0].toISODate()}T${time}`;

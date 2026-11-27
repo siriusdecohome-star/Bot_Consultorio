@@ -95,8 +95,7 @@
         <div class="actions"><label class="field-inline">Día <input type="date" id="date" /></label><button id="today" class="btn ghost small">Hoy</button></div>
       </div>
       <section class="kpis" id="kpis"><div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div><div class="kpi skeleton"></div></section>
-      <div class="grid">
-        <div class="col-main">
+      <div class="mosaic">
           <section class="card">
             <div class="card-head"><h2>Para atender ahora</h2><span class="hint">Conversaciones que esperan una respuesta de recepción</span></div>
             <ul class="urgent" id="urgent"><li class="loading">Cargando…</li></ul>
@@ -105,8 +104,6 @@
             <div class="card-head"><h2>Citas del día</h2><span class="hint" id="appt-hint"></span></div>
             <ul class="day-list" id="appts"><li class="loading">Cargando…</li></ul>
           </section>
-        </div>
-        <div class="col-side">
           <section class="card">
             <div class="card-head"><h2>Derivaciones abiertas</h2><span class="badge zero" id="ho-count">0</span></div>
             <ul class="handoffs" id="handoffs"><li class="loading">Cargando…</li></ul>
@@ -120,7 +117,6 @@
             <p class="note-box small" id="m-note" hidden></p>
             <div class="metrics" id="metrics"></div>
           </section>
-        </div>
       </div>
       <details class="card" data-admin-block>
         <summary>Pruebas automatizadas del asistente</summary>
@@ -144,8 +140,7 @@
         <label class="field-inline">Profesional <select id="ag-prof"><option value="">Todos</option></select></label>
         <label class="field-inline">Tratamiento <select id="ag-treatment"><option value="">Todos</option></select></label>
         <label class="field-inline">Estado <select id="ag-status">
-          <option value="">Todos</option><option value="confirmada">Confirmada</option><option value="pendiente">Pendiente</option>
-          <option value="sin-confirmar">Sin confirmar por el paciente</option><option value="asistio">Asistió</option><option value="ausente">Ausente</option><option value="cancelada">Cancelada</option>
+          <option value="">Todos</option><option value="sin-confirmar">Reservado · falta confirmar</option><option value="confirmo">Asistencia confirmada</option><option value="asistio">Asistió</option><option value="ausente">Ausente</option><option value="cancelada">Cancelada</option>
         </select></label>
         <label class="check"><input type="checkbox" id="ag-cancelled" /> Mostrar canceladas</label>
         <span class="hint" id="ag-count"></span>
@@ -166,7 +161,6 @@
         <div class="actions"><span class="hint" id="pr-mode"></span><button class="btn small" type="button" id="pr-add" hidden>+ Agregar profesional</button></div>
       </div>
       <div class="pros" id="pros"><p class="loading">Cargando…</p></div>
-      <p class="note-box small">📅 <b>Calendarios:</b> en esta demo un profesional usa un Google Calendar real y el resto, la agenda interna del sistema. En producción cada profesional conecta su propio calendario y el sistema lee solo ocupado/libre.</p>
       <div class="grid">
         <section class="card">
           <div class="card-head"><h2>Excepciones de agenda</h2><span class="hint">Ausencias, franjas y vacaciones</span></div>
@@ -290,7 +284,7 @@
       <div class="grid">
         <div class="col-main">
           <form class="card kb" id="kb-form">
-            <div class="card-head"><h2>Lo que sabe el asistente</h2><button class="btn" type="submit" id="kb-save">Guardar cambios</button></div>
+            <div class="card-head"><h2>Lo que sabe el asistente</h2><button class="btn" type="submit" id="kb-save" data-kb-save>Guardar cambios</button></div>
             <p class="hint">Los cambios rigen desde el siguiente mensaje que reciba el asistente, sin reiniciar nada.</p>
             <fieldset><legend>Datos del consultorio</legend>
               <div class="two">
@@ -336,6 +330,7 @@
               <label>Urgencias <textarea name="emergencies" rows="2" required></textarea></label>
               <label>Tono del asistente (opcional) <textarea name="tone" rows="2" placeholder="Ej.: trato cercano, mencionar la consulta para niños si preguntan por hijos."></textarea></label>
             </fieldset>
+            <div class="kb-foot"><span class="hint">Los cambios rigen desde el siguiente mensaje.</span><button class="btn" type="submit" data-kb-save>Guardar cambios</button></div>
           </form>
         </div>
         <div class="col-side sticky-side">

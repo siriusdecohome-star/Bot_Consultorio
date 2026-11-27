@@ -77,6 +77,9 @@ async function api(path, opts) {
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
 const put = (path, body) => api(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
 
+/** Avisa al recorrido guiado de una acción del panel (abrir chat, tomar, responder, abrir turno…). */
+function tourEvent(name, detail = {}) { dispatchEvent(new CustomEvent(`tour:${name}`, { detail })); }
+
 let toastT;
 function toast(text, bad = false) {
   const t = $("#toast");
@@ -91,6 +94,16 @@ const initials = (name) => String(name ?? "").replace(/[^\p{L} ]/gu, "").split("
 const pill = ([label, cls]) => `<span class="pill ${cls}">${esc(label)}</span>`;
 const statePill = (s) => pill(STATE[s] ?? [s, "muted"]);
 const apptPill = (s) => pill(STATUS[s] ?? [s, "muted"]);
+/**
+ * Un solo estado por turno, fácil de leer: el turno reservado espera que el paciente confirme
+ * su asistencia (con el botón del recordatorio o desde el panel).
+ */
+const apptState = (a) => {
+  const active = a.status === "confirmada" || a.status === "pendiente";
+  if (!active) return apptPill(a.status);
+  return a.confirmed ? pill(["✓ Asistencia confirmada", "ok"]) : pill(["Reservado · falta confirmar", "wait"]);
+};
+const APPT_HELP = "Reservado: el horario está tomado y el paciente todavía no confirmó que va a venir. Asistencia confirmada: respondió «Confirmo» al recordatorio o lo marcó el equipo.";
 const empty = (text) => `<li class="empty">${esc(text)}</li>`;
 
 // =====================================================================
@@ -117,6 +130,7 @@ function showView(name) {
   document.body.classList.toggle("inbox-mode", name === "bandeja");
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
   loaders[name]().catch((e) => toast(e.message, true));
+  tourEvent("view", { view: name });
 }
 addEventListener("hashchange", () => {
   const v = location.hash.slice(1);
@@ -243,6 +257,9 @@ async function openConv(id, { keepScroll = false } = {}) {
     c.closedReason ? `cerrada (${esc(c.closedReason)})` : "",
   ].filter(Boolean).join(" · ");
   renderActions(c);
+  const prevState = state.convState;
+  state.convState = c.state;
+  if (!first && prevState !== c.state) tourEvent("conv-state", { id, state: c.state });
   const sig = `${c.id}:${c.messages.length}:${c.state}`;
   if (sig !== state.convSig || !keepScroll) {
     renderThread("#thread", c.messages);
@@ -253,6 +270,7 @@ async function openConv(id, { keepScroll = false } = {}) {
     : c.state === "cerrada" ? "Al responder, la conversación se reabre." : "";
   if (c.line) $("#reply-hint").textContent = `${$("#reply-hint").textContent} La respuesta sale por la línea «${c.line.name}».`.trim();
   if (first || !state.profileDirty) renderProfile($("#profile"), c.patient, c.appointments, { conversationId: c.id });
+  if (first) tourEvent("conv", { id });
 }
 
 function renderActions(c) {
@@ -283,6 +301,7 @@ $("#c-actions").addEventListener("click", async (e) => {
     if (b.dataset.act === "reopen") await post(`/conversation/${id}/reopen`);
     toast(MSG[b.dataset.act]);
     await loadInbox();
+    tourEvent("act", { act: b.dataset.act });
   } catch (err) { toast(err.message, true); b.disabled = false; }
 });
 
@@ -313,6 +332,7 @@ $("#reply").addEventListener("submit", async (e) => {
     $("#reply-text").value = "";
     toast(r.how === "omitido" ? "Mensaje guardado (paciente de ejemplo: no se envía)" : "Mensaje enviado al paciente");
     await loadInbox();
+    tourEvent("reply");
   } catch (err) { toast(err.message, true); }
   btn.disabled = false;
 });
@@ -329,7 +349,7 @@ function renderProfile(root, p, appointments = [], { conversationId = null, conv
   const now = new Date().toISOString();
   const next = appointments.filter((a) => a.start >= now && ["confirmada", "pendiente"].includes(a.status));
   const past = appointments.filter((a) => !(a.start >= now && ["confirmada", "pendiente"].includes(a.status))).reverse();
-  const apptRow = (a) => `<li><span class="when">${esc(fDateTime(a.start))}</span><span class="tr">${esc(a.treatment)}${a.professional ? ` · ${esc(a.professional)}` : ""}</span>${apptPill(a.status)}${a.confirmed && a.status === "confirmada" ? '<span class="pill ok">✓ confirmó</span>' : ""}</li>`;
+  const apptRow = (a) => `<li><span class="when">${esc(fDateTime(a.start))}</span><span class="tr">${esc(a.treatment)}${a.professional ? ` · ${esc(a.professional)}` : ""}</span>${apptState(a)}</li>`;
   root.innerHTML = `
     <form class="profile" data-patient="${esc(p.id)}">
       <div class="profile-head">
@@ -434,7 +454,7 @@ async function loadSummary() {
   const k = d.kpis;
   $("#kpis").innerHTML = kpiHtml([
     ["Esperan respuesta", k.waiting, k.waiting ? "abrí la bandeja para responder" : "nada pendiente", k.waiting > 0, "bandeja-esperando"],
-    ["Citas del día", k.appointmentsToday, k.upcomingToday ? `${k.upcomingToday} por venir · ${k.unconfirmedToday} sin confirmar` : "ninguna por venir", false, "agenda"],
+    ["Citas del día", k.appointmentsToday, k.upcomingToday ? `${k.upcomingToday} por venir · ${k.unconfirmedToday} falta confirmar` : "ninguna por venir", false, "agenda"],
     ["Próximos 7 días", k.next7Days, "turnos activos", false, "agenda"],
     ["Lista de espera", k.waitlist, k.offersPending ? `${k.offersPending} oferta(s) enviada(s)` : "esperando un hueco", false, "agenda"],
     ["Leads sin turno", k.leadsWithoutAppointment, "llegaron por una promo", false, "pacientes"],
@@ -456,7 +476,7 @@ async function loadSummary() {
     return `<li class="day-item${soon ? " needs" : ""}" data-appt="${esc(a.id)}" tabindex="0">
       <span class="time">${esc(fTime(a.start))}</span>
       <span class="who">${esc(a.patient)}<span class="ch">${esc(a.treatment)}</span></span>
-      ${apptPill(a.status)}${active ? (a.confirmed ? '<span class="pill ok">✓ confirmó</span>' : '<span class="pill wait">sin confirmar</span>') : ""}
+      ${apptState(a)}
     </li>`;
   }).join("") : empty("No hay citas este día.");
   state.summaryAppts = d.appointments;
@@ -572,7 +592,8 @@ function agendaFiltered() {
     (showCancelled || a.status !== "cancelada") &&
     (!tr || a.treatment === tr) &&
     (!pr || a.professionalId === pr) &&
-    (!st || (st === "sin-confirmar" ? ["confirmada", "pendiente"].includes(a.status) && !a.confirmed : a.status === st)));
+    (!st || (st === "sin-confirmar" ? ["confirmada", "pendiente"].includes(a.status) && !a.confirmed
+      : st === "confirmo" ? ["confirmada", "pendiente"].includes(a.status) && a.confirmed : a.status === st)));
 }
 
 /** Bloques de atención (minutos) de un día: los del profesional cruzados con los de la clínica. */
@@ -658,7 +679,7 @@ function renderAgenda() {
       const hit = active && ex && s < ex.to && e > ex.from;
       return `<button type="button" class="cal-appt st-${esc(a.status)}${active && !a.confirmed ? " unconfirmed" : ""}${hit ? " affected" : ""}" data-appt="${esc(a.id)}"
         style="--pc:${esc(color)};top:${y(s) + 1}px;height:${Math.max(y(e) - y(s) - 2, 20)}px;left:calc(${(lane / n) * 100}% + 2px);width:calc(${100 / n}% - 4px)"
-        title="${esc(`${a.time}–${a.endTime} · ${a.patient} · ${a.treatment}${a.professional ? ` · ${a.professional}` : ""} · ${STATUS[a.status]?.[0] ?? a.status}`)}">
+        title="${esc(`${a.time}–${a.endTime} · ${a.patient} · ${a.treatment}${a.professional ? ` · ${a.professional}` : ""} · ${a.confirmed ? "asistencia confirmada" : a.status === "confirmada" ? "reservado, falta confirmar" : STATUS[a.status]?.[0] ?? a.status}`)}">
         <b>${esc(a.time)}</b> ${esc(a.patient)}<span>${esc(a.treatment)}${d.days === 7 && !c.prof && a.professional ? ` · ${esc(a.professional)}` : ""}</span></button>`;
     }).join("");
     const nowLine = c.iso === d.today && nowMin >= start && nowMin <= end ? `<div class="cal-now" style="top:${y(nowMin)}px"></div>` : "";
@@ -694,6 +715,7 @@ $("#cal").addEventListener("click", (e) => {
 
 /** Panel lateral de un turno: datos y acciones. */
 function openAppointment(a) {
+  setTimeout(() => tourEvent("appt", { id: a.id }), 0);
   const active = a.status === "confirmada" || a.status === "pendiente";
   const past = a.start < new Date().toISOString();
   const btn = (st, label, cls = "ghost") => `<button class="btn small ${cls}" data-st="${st}">${label}</button>`;
@@ -704,11 +726,11 @@ function openAppointment(a) {
       <dl>
         <dt>Tratamiento</dt><dd>${esc(a.treatment)}</dd>
         ${a.professional ? `<dt>Profesional</dt><dd>${esc(a.professional)}</dd>` : ""}
-        <dt>Estado</dt><dd>${apptPill(a.status)} ${active ? (a.confirmed ? '<span class="pill ok">✓ confirmó el paciente</span>' : '<span class="pill wait">sin confirmar por el paciente</span>') : ""}</dd>
+        <dt>Estado</dt><dd>${apptState(a)}<p class="hint state-help">${esc(APPT_HELP)}</p></dd>
         <dt>Contacto</dt><dd>${esc(a.phone || "—")} · ${esc(CH[a.channel] ?? a.channel)}</dd>
         ${a.reminder24 !== undefined ? `<dt>Recordatorios</dt><dd>24 h ${a.reminder24 ? "✓" : "·"} · 2 h ${a.reminder2 ? "✓" : "·"}</dd>` : ""}
       </dl>
-      ${active ? `<div class="btn-row">${!a.confirmed && !past ? btn("confirmada", "✓ Marcar confirmado", "") : ""}${past ? btn("asistio", "Asistió", "") + btn("ausente", "Ausente") : ""}${btn("cancelada", "Cancelar turno", "danger")}</div>` : ""}
+      ${active ? `<div class="btn-row">${!a.confirmed && !past ? btn("confirmada", "✓ Confirmó asistencia", "") : ""}${past ? btn("asistio", "Asistió", "") + btn("ausente", "Ausente") : ""}${btn("cancelada", "Cancelar turno", "danger")}</div>` : ""}
       <div class="btn-row">
         ${a.conversationId ? `<button class="btn ghost small" data-goconv="${esc(a.conversationId)}">💬 Ver conversación</button>` : ""}
         <button class="btn ghost small" data-patient="${esc(a.patientId)}">👤 Ver ficha</button>
@@ -1304,15 +1326,15 @@ function readKnowledge() {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!state.canEdit) return;
-  const btn = $("#kb-save");
-  btn.disabled = true;
+  const btns = $$("[data-kb-save]");
+  for (const b of btns) b.disabled = true;
   try {
     const k = readKnowledge();
     await put("/knowledge", { knowledge: k });
     state.knowledge = k;
     toast("Guardado: el asistente ya responde con estos datos");
   } catch (err) { toast(err.message, true); }
-  btn.disabled = false;
+  for (const b of btns) b.disabled = false;
 });
 
 function renderDocs(list, canEdit) {
@@ -1450,101 +1472,268 @@ async function init() {
   // El contador de la pestaña se carga siempre, aunque se abra otra sección primero.
   refreshBadge();
   // Refresco automático de las vistas en vivo (sin pisar lo que se está escribiendo).
-  setInterval(() => {
+  // Cada 4 s con la pestaña a la vista (cada 15 s en segundo plano) y apenas se vuelve a ella.
+  const live = () => {
     const typing = document.activeElement?.closest?.("form.profile, #reply, .kb");
     if (state.view === "bandeja" && !typing) loadInbox().catch(() => {});
     else if (["resumen", "agenda"].includes(state.view) && !$("#drawer").classList.contains("show")) refreshCurrent();
     else refreshBadge();
-  }, 10000);
+  };
+  let tick = 0;
+  setInterval(() => { tick++; if (!document.hidden || tick % 4 === 0) live(); }, 4000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) live(); });
 }
 init().catch((e) => ($("#updated").textContent = `error: ${e.message}`));
 
 // =====================================================================
-// Recorrido guiado (demo pública): paso a paso por cada sección, con el
-// simulador como chat. Se activa con ?recorrido=1 y recuerda el paso.
+// Tarjetas plegables: un toque en el título las contrae o expande (se recuerda por tarjeta).
 // =====================================================================
-const CLARIFY = "En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu consultorio funciona por WhatsApp real.";
-const TOUR = [
-  { view: "bandeja", title: "Bienvenido a tu clínica de prueba", text: `Sos administrador de una copia de la clínica de ejemplo, con 30 días de datos. Nadie más la ve y se borra sola en 24 horas.\n\n${CLARIFY}`, action: "chat" },
-  { view: "bandeja", target: ".ib-list", title: "1. Escribile al asistente", text: "En la pestaña del chat escribí «Hola» o tocá «📅 Sacar un turno». Tu conversación aparece en esta bandeja en unos segundos, con la línea a la que escribiste. Arriba del chat podés cambiar de línea: la de «Ortodoncia · Dr. Ríos» te ofrece primero a ese doctor.", wait: true, action: "chat" },
-  { view: "bandeja", target: ".ib-chat", title: "2. La conversación", text: "Cada mensaje dice quién lo escribió. Probá «Tomar conversación» y respondé: tu mensaje llega a la pestaña del chat y el bot deja de contestar. «Devolver al bot» lo reactiva." },
-  { view: "bandeja", target: "#profile-pane", title: "3. La ficha del paciente", text: "Corregí el nombre real, agregá una etiqueta o una nota y guardá: el cambio se ve en el chat, la agenda y la lista de pacientes." },
-  { view: "agenda", target: "#cal", title: "4. La agenda", text: "Si reservaste en el chat, tu turno está acá. Pasá a «Día» para ver una columna por profesional y tocá un turno para confirmarlo o cancelarlo." },
-  { view: "profesionales", target: "#exc-form", title: "5. Profesionales y ausencias", text: "Cargá una ausencia de un profesional: el panel lista los turnos afectados y te ofrece avisarles por el bot para reprogramar." },
-  { view: "seguimientos", target: "#fu-rules", title: "6. Seguimientos", text: "Recordatorios antes del turno, seguimiento después y reactivación. Activá una regla o cambiá un texto y guardá." },
-  { view: "aprendizaje", target: "#kb-form", title: "7. Enseñarle cosas nuevas", text: "Cambiá un precio, guardá y preguntalo en el probador de la derecha: el asistente ya responde con el dato nuevo." },
-  { view: "estadisticas", target: "#stats-kpis", title: "8. Estadísticas", text: "Consultas, conversión y resolución del asistente de los 30 días de ejemplo. En Costos está el gasto de la IA por conversación." },
-  { view: "bandeja", title: "¡Listo!", text: "Seguí probando lo que quieras: todo funciona igual que en una clínica real. Tu copia se borra sola en 24 horas.", last: true },
-];
-const tour = { step: -1, since: null, timer: null };
-const tourSave = () => { try { sessionStorage.setItem("recorrido", JSON.stringify({ step: tour.step, since: tour.since })); } catch {} };
+(function foldableCards() {
+  const KEY = "panel-plegadas";
+  let folded = {};
+  try { folded = JSON.parse(localStorage.getItem(KEY) ?? "{}"); } catch {}
+  for (const card of $$("main section.card")) {
+    const head = card.querySelector(":scope > .card-head");
+    const h2 = head?.querySelector("h2");
+    if (!h2) continue;
+    const view = card.closest(".view")?.dataset.view ?? "";
+    const id = `${view}:${h2.textContent.trim()}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "fold";
+    btn.setAttribute("aria-label", `Contraer o expandir «${h2.textContent.trim()}»`);
+    head.prepend(btn);
+    const apply = (on) => { card.classList.toggle("folded", on); btn.setAttribute("aria-expanded", String(!on)); };
+    apply(!!folded[id]);
+    const toggle = (e) => {
+      if (e.target.closest("button:not(.fold), a, input, select, label")) return;
+      const on = !card.classList.contains("folded");
+      apply(on);
+      if (on) folded[id] = 1; else delete folded[id];
+      try { localStorage.setItem(KEY, JSON.stringify(folded)); } catch {}
+    };
+    head.addEventListener("click", toggle);
+    head.classList.add("foldable");
+  }
+})();
 
+// =====================================================================
+// Recorrido guiado (demo pública). Obligatorio y paso a paso, entre dos pestañas:
+// el panel (esta) y el chat del paciente (el simulador). Las dos leen y escriben el
+// mismo estado en localStorage («recorrido»), así cada una sabe qué paso sigue.
+// Cada paso señala un elemento, oscurece y bloquea el resto de la pantalla y avanza
+// solo cuando la persona hace lo que se le pide (o con «Siguiente» en los explicativos).
+// =====================================================================
+const CLARIFY = "En esta demo el chat es una simulación para que lo pruebes sin WhatsApp. En tu negocio funciona por WhatsApp real.";
+const TOUR_KEY = "recorrido";
+const tourGet = () => { try { return JSON.parse(localStorage.getItem(TOUR_KEY) ?? "null"); } catch { return null; } };
+function tourSet(patch) {
+  const t = { ...(tourGet() ?? {}), ...patch };
+  try { localStorage.setItem(TOUR_KEY, JSON.stringify(t)); } catch {}
+  tourRender();
+  return t;
+}
+const tourActive = () => { const t = tourGet(); return !!t && t.clinic === state.clinic && t.step !== "fin"; };
+
+/** Pasos que se hacen en la pestaña del chat: acá solo se avisa que hay que ir allá. */
+const CHAT_STEPS = new Set(["chat-book", "chat-see"]);
+const TOUR_STEPS = {
+  welcome: { title: "Probá tu asistente en 3 minutos", text: `Vas a hacer de paciente: se abre el chat en otra pestaña, sacás un turno y después lo ves llegar acá, al panel de tu equipo.\n\n${CLARIFY}`, action: ["Abrir el chat del paciente ↗", "open-chat"] },
+  "chat-book": { title: "👉 Seguí en la pestaña «Chat del paciente»", text: "Ahí te guiamos para sacar un turno. Cuando lo reserves te avisamos para volver a esta pestaña.", action: ["Volver a abrir el chat ↗", "open-chat"] },
+  "inbox-open": { view: "bandeja", target: () => $(`#inbox .conv[data-id="${CSS.escape(tourGet()?.conv ?? "")}"]`), title: "1. Tu conversación llegó al instante", text: "Es la primera de la lista. Tocala para abrirla." },
+  take: { view: "bandeja", target: '[data-act="takeover"]', title: "2. Tomá la conversación", text: "Así una persona del equipo atiende y el asistente deja de responder. Tocá «Tomar conversación»." },
+  // Variante si el asistente ya cerró la conversación al confirmar el turno.
+  "take-closed": { view: "bandeja", target: '[data-act="reopen"]', title: "2. Reabrí la conversación", text: "El asistente resolvió tu reserva y cerró la conversación solo. Tocá «Reabrir» para atenderla vos." },
+  reply: { view: "bandeja", target: "#reply", title: "3. Respondele al paciente", text: "Escribí un mensaje, por ejemplo «Hola, soy de recepción. ¿Te ayudo con algo más?», y envialo." },
+  "chat-see": { title: "4. 👉 Mirá la pestaña «Chat del paciente»", text: "Tu mensaje le llegó al paciente. Andá a esa pestaña para verlo y después volvé acá.", action: ["Ir al chat ↗", "open-chat"] },
+  "back-bot": { view: "bandeja", target: '[data-act="release"]', title: "5. Devolvé la conversación al asistente", text: "Cuando terminás, el asistente vuelve a atender solo. Tocá «Devolver al bot»." },
+  profile: { view: "bandeja", target: "#profile-pane", title: "6. La ficha del paciente", text: "El asistente guardó solo el nombre que escribiste en el chat. Acá el equipo puede corregirlo y sumar etiquetas y notas internas.", next: true },
+  agenda: { view: "agenda", target: () => $(`#cal [data-appt="${CSS.escape(tour.apptId ?? "")}"]`), title: "7. Tu turno en la agenda", text: "Este es el turno que sacaste en el chat, en la columna de su profesional. Tocalo para ver el detalle." },
+  "appt-states": { view: "agenda", target: "#drawer", title: "8. Qué significa cada estado", text: "«Reservado · falta confirmar»: el horario está tomado y el paciente todavía no confirmó que va a venir.\n\nCuando responde «Confirmo» al recordatorio, o lo marcás vos, pasa a «Asistencia confirmada».", next: true },
+  profesionales: { view: "profesionales", target: "#exc-form", title: "9. Ausencias de un profesional", text: "Si alguien falta, cargás la ausencia acá: el panel lista los turnos afectados y el asistente les ofrece reprogramar.", next: true },
+  seguimientos: { view: "seguimientos", target: "#fu-rules", title: "10. Recordatorios y seguimientos", text: "Elegís cuándo sale cada recordatorio (72, 24 o 2 horas antes), el seguimiento después del turno y la reactivación de pacientes.", next: true },
+  aprendizaje: { view: "aprendizaje", target: "#kb-form", title: "11. Lo que sabe el asistente", text: "Precios, horarios, preguntas frecuentes y documentos. Cambiás algo, guardás y el asistente ya responde con el dato nuevo.", next: true },
+  estadisticas: { view: "estadisticas", target: "#stats-kpis", title: "12. Estadísticas", text: "Consultas, turnos, conversión y cuánto resuelve el asistente sin ayuda, con 30 días de datos de ejemplo.", next: true },
+  end: { title: "¡Listo! Ya viste todo el circuito", text: "Ahora probá lo que quieras: escribile más al chat, cambiá una regla o un precio. Tu copia se borra sola en 24 horas.", action: ["Terminar recorrido", "finish"] },
+};
+const TOUR_ORDER = Object.keys(TOUR_STEPS).filter((k) => k !== "take-closed");
+const TAB_LABEL = Object.fromEntries([...$$(".tabs button[data-view]")].map((b) => [b.dataset.view, b.textContent.replace(/\d+/g, "").trim()]));
+const tour = { apptId: null, raf: 0 };
+
+function tourNext() {
+  const t = tourGet();
+  const i = TOUR_ORDER.indexOf(t?.step);
+  if (t?.step === "appt-states") closeDrawer();
+  tourSet({ step: TOUR_ORDER[i + 1] ?? "end" });
+}
 function tourOpenChat() {
   window.open(`/?clinica=${encodeURIComponent(state.clinic ?? "")}&recorrido=1`, "chat-demo");
 }
-function tourRender() {
-  clearInterval(tour.timer);
-  for (const el of $$(".tour-focus")) el.classList.remove("tour-focus");
-  let card = $("#tour");
-  if (tour.step < 0 || tour.step >= TOUR.length) { card?.remove(); return; }
-  const s = TOUR[tour.step];
-  if (state.view !== s.view) showView(s.view);
-  if (!card) {
-    card = document.createElement("aside");
-    card.id = "tour";
-    card.className = "tour";
-    card.setAttribute("role", "dialog");
-    card.setAttribute("aria-label", "Recorrido guiado");
-    document.body.append(card);
+
+/** Capa que oscurece la pantalla y deja libre solo el elemento señalado (y la tarjeta). */
+function tourLayer() {
+  let layer = $("#tour-layer");
+  if (!layer) {
+    layer = document.createElement("div");
+    layer.id = "tour-layer";
+    layer.innerHTML = '<div class="tl-hole"></div><div class="tl-block" data-b="t"></div><div class="tl-block" data-b="r"></div><div class="tl-block" data-b="b"></div><div class="tl-block" data-b="l"></div>';
+    document.body.appendChild(layer);
   }
-  card.innerHTML = `
-    <div class="tour-top"><span class="hint">Recorrido · ${tour.step + 1} de ${TOUR.length}</span><button class="icon" data-tour="close" aria-label="Cerrar recorrido">✕</button></div>
-    <h3>${esc(s.title)}</h3>
-    ${s.text.split("\n\n").map((p) => `<p${p === CLARIFY ? ' class="tour-clarify"' : ""}>${esc(p)}</p>`).join("")}
-    <p class="tour-status" id="tour-status"></p>
-    <div class="btn-row">
-      ${tour.step > 0 ? '<button class="btn ghost small" data-tour="prev">Anterior</button>' : ""}
-      ${s.action === "chat" ? '<button class="btn ghost small" data-tour="chat">Abrir el chat ↗</button>' : ""}
-      <button class="btn small" data-tour="${s.last ? "close" : "next"}">${s.last ? "Terminar recorrido" : tour.step === 0 ? "Empezar" : "Siguiente"}</button>
-    </div>`;
-  setTimeout(() => { if (s.target) $(s.target)?.classList.add("tour-focus"); }, 400);
-  // Paso 1: espera a que llegue la conversación del chat simulado y la abre.
-  if (s.wait) {
-    const check = async () => {
-      try {
-        const d = await api("/conversations?filtro=todas");
-        const mine = d.conversations.find((c) => c.channel === "web" && c.lastAt >= tour.since);
-        if (mine) {
-          clearInterval(tour.timer);
-          $("#tour-status").textContent = "✅ Llegó tu conversación: ya la abrimos.";
-          await loadInbox();
-          await openConv(mine.id);
-        } else $("#tour-status").textContent = "Esperando tu primer mensaje…";
-      } catch {}
-    };
-    check();
-    tour.timer = setInterval(check, 3000);
-  }
-  tourSave();
+  return layer;
 }
-document.addEventListener("click", (e) => {
+
+function tourRender() {
+  const t = tourGet();
+  const card0 = $("#tour");
+  if (!t || t.clinic !== state.clinic || t.step === "fin") {
+    card0?.remove(); $("#tour-layer")?.remove(); cancelAnimationFrame(tour.raf);
+    document.title = document.title.replace(/^👉 Volvé acá · /, "");
+    return;
+  }
+  // «chat-done»: ya reservó en el chat; mientras no vuelva a esta pestaña se sigue mostrando el aviso del chat.
+  let step = t.step === "chat-done" ? "chat-book" : TOUR_STEPS[t.step] ? t.step : "welcome";
+  if (step === "take" && state.openConv === t.conv && state.convState === "cerrada") step = "take-closed";
+  // La conversación del recorrido puede estar cerrada (el asistente cierra al reservar): se listan todas.
+  if (step === "inbox-open" && state.view === "bandeja" && state.convFilter !== "todas") {
+    state.convFilter = "todas"; state.showMore = true; loadInbox().catch(() => {});
+  }
+  const s = TOUR_STEPS[step];
+  // Fuera de lugar: primero hay que ir a la sección del paso (se señala la pestaña del menú).
+  const navTo = s.view && state.view !== s.view ? s.view : null;
+  const card = card0 ?? Object.assign(document.createElement("div"), { id: "tour", className: "tour" });
+  if (!card0) { card.setAttribute("role", "dialog"); card.setAttribute("aria-live", "polite"); card.setAttribute("aria-label", "Recorrido guiado"); document.body.appendChild(card); }
+  const n = TOUR_ORDER.indexOf(step === "take-closed" ? "take" : step);
+  const title = navTo ? `Andá a «${TAB_LABEL[navTo] ?? navTo}»` : s.title;
+  const text = navTo ? `Tocá «${TAB_LABEL[navTo] ?? navTo}» en el menú de arriba para seguir.` : s.text;
+  const btn = navTo ? "" : s.next ? '<button class="btn small" data-tour="next">Siguiente</button>'
+    : s.action ? `<button class="btn small${CHAT_STEPS.has(step) ? " ghost" : ""}" data-tour="${s.action[1]}">${esc(s.action[0])}</button>` : "";
+  card.innerHTML = `
+    <div class="tour-top"><span class="hint">Recorrido · ${n + 1} de ${TOUR_ORDER.length}</span></div>
+    <h3>${esc(title)}</h3>
+    ${text.split("\n\n").map((p) => `<p${p === CLARIFY ? ' class="tour-clarify"' : ""}>${esc(p)}</p>`).join("")}
+    ${btn ? `<div class="btn-row">${btn}</div>` : ""}`;
+  card.dataset.step = step;
+  tour.target = navTo ? () => $(`.tabs [data-view="${navTo}"]`) : s.target ? (typeof s.target === "function" ? s.target : () => $(s.target)) : null;
+  tour.chatStep = CHAT_STEPS.has(step);
+  // Si el paso es en la otra pestaña y esta queda a la vista, el título invita a volver cuando corresponde.
+  document.title = document.title.replace(/^👉 Volvé acá · /, "");
+  if (step === "agenda" && !navTo) tourFocusAppointment().catch(() => {});
+  cancelAnimationFrame(tour.raf);
+  tourFollow();
+}
+
+/** Cada cuadro: ubica el hueco sobre el elemento señalado y la tarjeta donde no lo tape. */
+function tourFollow() {
+  const card = $("#tour");
+  if (!card) return;
+  const layer = tourLayer();
+  const el = tour.target?.();
+  const hole = $(".tl-hole", layer);
+  const W = innerWidth, H = innerHeight, pad = 6;
+  let r = null;
+  if (el && el.offsetParent !== null) {
+    const b = el.getBoundingClientRect();
+    if (b.width && b.height) r = { x: Math.max(0, b.left - pad), y: Math.max(0, b.top - pad), w: Math.min(W, b.width + pad * 2), h: Math.min(H, b.height + pad * 2) };
+  }
+  layer.classList.toggle("no-target", !r);
+  if (r) {
+    Object.assign(hole.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    const set = (k, css) => Object.assign($(`[data-b="${k}"]`, layer).style, css);
+    set("t", { left: "0", top: "0", width: "100%", height: `${r.y}px` });
+    set("b", { left: "0", top: `${r.y + r.h}px`, width: "100%", height: `${Math.max(0, H - r.y - r.h)}px` });
+    set("l", { left: "0", top: `${r.y}px`, width: `${r.x}px`, height: `${r.h}px` });
+    set("r", { left: `${r.x + r.w}px`, top: `${r.y}px`, width: `${Math.max(0, W - r.x - r.w)}px`, height: `${r.h}px` });
+    if (!tour.scrolled && (b0(el).top < 60 || b0(el).bottom > H - 40)) { el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    tour.scrolled = true;
+  }
+  // Tarjeta: abajo a la derecha, salvo que tape el elemento; entonces prueba las otras esquinas.
+  const cw = card.offsetWidth, ch = card.offsetHeight, m = 20;
+  const spots = [[W - cw - m, H - ch - m], [m, H - ch - m], [W - cw - m, m + 60], [m, m + 60]];
+  const free = spots.find(([x, y]) => !r || x + cw < r.x || x > r.x + r.w || y + ch < r.y || y > r.y + r.h) ?? spots[0];
+  card.style.left = `${Math.max(8, free[0])}px`;
+  card.style.top = `${Math.max(8, free[1])}px`;
+  tour.raf = requestAnimationFrame(tourFollow);
+}
+const b0 = (el) => el.getBoundingClientRect();
+
+/** Paso de la agenda: abre el día del turno reservado en el chat, en la vista por profesional. */
+async function tourFocusAppointment() {
+  const conv = tourGet()?.conv;
+  if (!conv || tour.loadingAppt) return;
+  if (tour.apptId && state.agDays === 1 && state.agenda?.appointments.some((a) => a.id === tour.apptId)) return;
+  tour.loadingAppt = true;
+  try {
+    const c = await api(`/conversation/${encodeURIComponent(conv)}`);
+    const a = c.appointments.filter((x) => ["confirmada", "pendiente"].includes(x.status)).at(-1) ?? c.appointments.at(-1);
+    if (!a) return;
+    tour.apptId = a.id;
+    state.agDays = 1;
+    state.weekFrom = dayKeyOf(a.start);
+    for (const b of $$("#ag-mode button")) b.classList.toggle("on", b.dataset.f === "1");
+    await loadAgenda();
+    tour.scrolled = false;
+  } finally { tour.loadingAppt = false; }
+}
+
+// Acciones que hacen avanzar el recorrido (las disparan la bandeja, la agenda y el menú).
+addEventListener("tour:conv", (e) => { const t = tourGet(); if (tourActive() && t.step === "inbox-open" && e.detail.id === t.conv) tourSet({ step: "take" }); });
+addEventListener("tour:act", (e) => {
+  const t = tourGet();
+  if (!tourActive() || state.openConv !== t.conv) return;
+  if (t.step === "take" && e.detail.act === "takeover") tourSet({ step: "reply" });
+  if (t.step === "take" && e.detail.act === "reopen") tourRender();
+  if (t.step === "back-bot" && e.detail.act === "release") tourSet({ step: "profile" });
+});
+addEventListener("tour:reply", () => { const t = tourGet(); if (tourActive() && t.step === "reply" && state.openConv === t.conv) tourSet({ step: "chat-see" }); });
+addEventListener("tour:appt", (e) => { const t = tourGet(); if (tourActive() && t.step === "agenda" && e.detail.id === tour.apptId) tourSet({ step: "appt-states" }); });
+addEventListener("tour:conv-state", () => { if (tourActive()) tourRender(); });
+addEventListener("tour:view", () => { if (tourActive()) { tour.scrolled = false; tourRender(); } });
+// La otra pestaña cambió el paso (reservó el turno, vio el mensaje de recepción…).
+addEventListener("storage", (e) => { if (e.key === TOUR_KEY) { tour.scrolled = false; tourRender(); tourBackHere(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) tourBackHere(); });
+/** Al volver a esta pestaña después de reservar, la bandeja ya muestra la conversación. */
+function tourBackHere() {
+  const t = tourGet();
+  if (!tourActive()) return;
+  // Con la pestaña oculta solo se avisa en el título; el paso avanza cuando la persona vuelve.
+  if (document.hidden) {
+    if (["chat-done", "back-bot"].includes(t.step) && !document.title.startsWith("👉")) document.title = `👉 Volvé acá · ${document.title}`;
+    return;
+  }
+  if (t.step === "chat-done") {
+    state.convFilter = "todas";
+    state.showMore = true;
+    state.openConv = null;
+    if (state.view !== "bandeja") showView("bandeja"); else loadInbox().catch(() => {});
+    tourSet({ step: "inbox-open" });
+  }
+}
+$("body").addEventListener("click", (e) => {
   const b = e.target.closest("[data-tour]");
   if (!b) return;
   const a = b.dataset.tour;
-  if (a === "chat") return tourOpenChat();
-  if (a === "close") { tour.step = -1; tourSave(); try { sessionStorage.removeItem("recorrido"); } catch {} return tourRender(); }
-  if (a === "next" && tour.step === 0) tourOpenChat();
-  tour.step += a === "prev" ? -1 : 1;
-  tourRender();
+  if (a === "open-chat") { tourOpenChat(); if (tourGet()?.step === "welcome") tourSet({ step: "chat-book", since: new Date().toISOString() }); }
+  if (a === "next") tourNext();
+  if (a === "finish") { tourSet({ step: "fin" }); toast("¡Gracias por recorrer la demo!"); }
 });
+
 (function tourStart() {
   const params = new URLSearchParams(location.search);
-  let saved = null;
-  try { saved = JSON.parse(sessionStorage.getItem("recorrido") ?? "null"); } catch {}
-  if (params.get("recorrido") !== "1" && !saved) return;
-  tour.step = Math.max(0, saved?.step ?? 0);
-  tour.since = saved?.since ?? new Date(Date.now() - 60_000).toISOString();
-  if (params.has("recorrido")) { params.delete("recorrido"); history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`); }
-  // Espera a que el panel cargue la clínica antes de mostrar el primer paso.
-  const wait = setInterval(() => { if (state.clinic) { clearInterval(wait); tourRender(); } }, 200);
+  let t = tourGet();
+  // Viene de «Empezar la demo» (o de ?recorrido=1): arranca el recorrido de esta clínica.
+  if (params.get("recorrido") === "1") {
+    params.delete("recorrido");
+    history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`);
+    if (!t || t.step === "fin") t = { step: "welcome", clinic: null };
+    try { localStorage.setItem(TOUR_KEY, JSON.stringify(t)); } catch {}
+  }
+  if (!t) return;
+  const wait = setInterval(() => {
+    if (!state.clinic) return;
+    clearInterval(wait);
+    const cur = tourGet();
+    if (cur && !cur.clinic) tourSet({ clinic: state.clinic });
+    else tourRender();
+    tourBackHere();
+  }, 200);
 })();

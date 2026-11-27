@@ -345,7 +345,7 @@ export function createPanelRouter(opts: PanelOptions): Router {
       .filter((c) => !q || `${c.patient ?? ""} ${c.phone} ${c.lastText} ${c.tags.join(" ")}`.toLowerCase().includes(q));
     const list = all
       .filter((c) => matchesFilter(c.state, filter))
-      .sort((a, b) => Number(b.waiting) - Number(a.waiting) || b.lastAt.localeCompare(a.lastAt));
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt)); // la más reciente arriba (las que esperan se marcan en color)
     res.json({ filter, counts: inboxCounts(all.map((c) => c.state)), conversations: list.slice(0, 300) });
   });
 

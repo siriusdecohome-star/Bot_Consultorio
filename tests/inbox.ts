@@ -52,6 +52,12 @@ const call = async (method: string, p: string, body?: unknown) => {
   return { status: r.status, json: await r.json().catch(() => ({})) as any };
 };
 const say = (userId: string, text: string, profileName?: string) => A.bot.handle({ channel: "web", userId, text, profileName });
+/** Pide un turno y, si el bot pregunta especialidad o profesional, elige la opción 1. */
+const askTurn = async (userId: string, text: string) => {
+  let r = await say(userId, text);
+  for (let i = 0; i < 2 && /especialidad|con quién prefiere/i.test(r.messages.at(-1) ?? ""); i++) r = await say(userId, "1");
+  return r;
+};
 const convOf = async (userId: string) => {
   const p = (await A.store.listPatients()).find((x) => x.phone === userId)!;
   return (await A.store.listConversations()).find((c) => c.patientId === p.id)!;
@@ -134,7 +140,7 @@ try {
 
   // ---------------- Cierre automático y reapertura ----------------
   await check("Cierre automático al confirmar un turno", async () => {
-    await say("web:cierre-1", "Quiero sacar un turno para el miércoles a las 11:00");
+    await askTurn("web:cierre-1", "Quiero sacar un turno para el miércoles a las 11:00");
     const r = await say("web:cierre-1", "Ana Pérez");
     assert.match(r.messages.join(" "), /Listo/);
     const c = await convOf("web:cierre-1");
@@ -197,7 +203,7 @@ try {
   });
 
   await check("Ficha: editar nombre, teléfono, notas y etiquetas; el nombre se ve en agenda, bandeja y pacientes", async () => {
-    await say("web:ficha-2", "Quiero sacar un turno para el jueves a las 11:00");
+    await askTurn("web:ficha-2", "Quiero sacar un turno para el jueves a las 11:00");
     await say("web:ficha-2", "Juan Gomez");
     const p = (await A.store.listPatients()).find((x) => x.phone === "web:ficha-2")!;
     assert.equal(p.name, "Juan Gomez");
@@ -223,7 +229,7 @@ try {
   });
 
   await check("Herramienta guardar_nombre_paciente: guarda el nombre real y lo propaga", async () => {
-    const r = await say("web:nombre-1", "Hola, quiero un turno para el viernes a las 10:00");
+    const r = await askTurn("web:nombre-1", "Hola, quiero un turno para el viernes a las 10:00");
     assert.match(r.messages.join(" "), /nombre y apellido/);
     const r2 = await say("web:nombre-1", "me llamo maría lópez");
     assert.ok(r2.toolCalls.some((t) => t.name === "guardar_nombre_paciente"));

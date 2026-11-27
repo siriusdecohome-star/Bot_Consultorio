@@ -94,7 +94,7 @@ try {
   await check("El simulador entra por la misma función que WhatsApp: el turno no toca Google y el chat aparece en la bandeja", async () => {
     const rt = runtimes.get(first.clinicId)!;
     const before = (await calendar.listEvents(rt.calendar ? (await import("luxon")).DateTime.fromISO("2026-11-20") : null as any, (await import("luxon")).DateTime.fromISO("2026-12-31"))).length;
-    await receiveMessage(rt.bot, { channel: "web", from: "web:visitante1", text: "Quiero sacar un turno para el miércoles a las 11:00" });
+    await receiveMessage(rt.bot, { channel: "web", from: "web:visitante1", text: "Quiero sacar un turno de consulta y diagnóstico para el miércoles a las 11:00" });
     const r = await receiveMessage(rt.bot, { channel: "web", from: "web:visitante1", text: "Ana Prueba" });
     assert.match(r.messages.join(" "), /Listo/);
     const after = (await calendar.listEvents((await import("luxon")).DateTime.fromISO("2026-11-20"), (await import("luxon")).DateTime.fromISO("2026-12-31"))).length;

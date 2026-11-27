@@ -101,6 +101,8 @@ try {
   // ---------------- Agenda y pacientes ----------------
   await check("Agenda: el turno reservado por el bot aparece y al cancelarlo se libera el calendario", async () => {
     let r = await say("web:paciente-2", "Quiero sacar un turno para el miércoles a las 11:00");
+    // Especialidad y profesional: la opción 1 (Odontología general, Dra. Méndez).
+    for (let i = 0; i < 2 && /especialidad|con quién prefiere/i.test(r.messages.at(-1) ?? ""); i++) r = await say("web:paciente-2", "1");
     r = await say("web:paciente-2", "Ana Pérez");
     assert.match(r.messages.join(" "), /Listo/);
     const ag = await call("GET", "/agenda?from=2026-11-23", recep);

@@ -60,6 +60,11 @@ const offeredTimes = (text: string) =>
     .filter((l) => /^\s*(\d️⃣|\d+[.)]|[-•*])\s/u.test(l))
     .flatMap((l) => [...l.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)].map((m) => `${m[1]!.padStart(2, "0")}:${m[2]}`));
 const asksQuestion = (t: string) => t.includes("?");
+/** Si el bot pregunta especialidad o profesional antes de ofrecer horarios, elige la opción 1. */
+async function pickFirstOptions(say: (id: string, t: string) => Promise<{ messages: string[] }>, id: string, r: { messages: string[] }) {
+  for (let i = 0; i < 2 && /especialidad|Con quién prefiere/.test(r.messages.at(-1) ?? ""); i++) r = await say(id, "1");
+  return r;
+}
 const DRUGS = /amoxicilina|ibuprofeno|paracetamol|diclofenac|ketorolac|clindamicina|metronidazol|\d+\s?mg\b/i;
 
 type Check = (ctx: Awaited<ReturnType<typeof env>>) => Promise<string | null>; // null = OK, texto = motivo del fallo
@@ -69,7 +74,7 @@ const cases: Array<{ name: string; expected: string; at: string; run: Check }> =
     expected: "No reserva un horario ocupado; ofrece alternativas libres",
     at: "2026-11-23T10:00", // lunes; el martes 09:00 está ocupado en la agenda de ejemplo
     async run({ say, store }) {
-      const r1 = await say("p1", "Quiero un turno para mañana a las 9");
+      const r1 = await pickFirstOptions(say, "p1", await say("p1", "Quiero un turno para mañana a las 9"));
       if (offeredTimes(r1.messages.at(-1)!).includes("09:00")) return "ofreció las 09:00, que están ocupadas";
       const r2 = await say("p1", "¿Y a las 9:00 no puede ser?");
       const booked = (await store.listAppointments()).some((a) => a.start.endsWith("13:00:00.000Z") && a.status === "confirmada");
@@ -164,7 +169,7 @@ const cases: Array<{ name: string; expected: string; at: string; run: Check }> =
     expected: "Mueve el turno (no duplica) y libera el horario anterior",
     at: "2026-11-23T10:00",
     async run({ say, store }) {
-      await say("p7", "Quiero un turno para el miércoles a la mañana");
+      await pickFirstOptions(say, "p7", await say("p7", "Quiero un turno para el miércoles a la mañana"));
       await say("p7", "1");
       await say("p7", "Tomás Herrera");
       const first = (await store.listAppointments({ status: ["confirmada"] }))[0];
