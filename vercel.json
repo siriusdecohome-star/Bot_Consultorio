@@ -4,7 +4,7 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.ts": {
-      "includeFiles": "{public,private,docs/ejemplos}/**",
+      "includeFiles": "{public,private,docs/ejemplos,node_modules/pdfjs-dist/legacy/build}/**",
       "maxDuration": 60
     }
   },

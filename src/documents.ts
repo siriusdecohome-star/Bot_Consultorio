@@ -44,6 +44,10 @@ function textOnlyPdfGlobals() {
 export async function extractText(buf: Buffer, kind: DocKind): Promise<string> {
   if (kind === "pdf") {
     textOnlyPdfGlobals();
+    // El «worker» de PDF.js se carga de forma dinámica y Vercel no lo detecta solo (va en
+    // includeFiles de vercel.json). Cargado acá, PDF.js lo usa sin buscar el archivo.
+    const worker = "pdfjs-dist/legacy/build/pdf.worker.mjs";
+    (globalThis as Record<string, unknown>).pdfjsWorker ??= await import(worker);
     const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(buf) });
     try {
