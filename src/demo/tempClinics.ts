@@ -127,7 +127,7 @@ export class DemoService {
       const data = services.storeKind === "supabase"
         ? loadDemoSupabase((services.store as SupabaseStore).client, null, profile, now, { fresh: true })
         : loadDemoMemory(rt.store, rt.calendar, profile, now);
-      const [session] = await Promise.all([this.o.auth.demoLogin(id, secure), data, loadExampleDocument(rt.store)]);
+      const [session] = await Promise.all([this.o.auth.demoLogin(id, secure), data, loadExampleDocument(rt.store).catch((e) => { console.error("[demo] documento de ejemplo:", e); return null; })]);
       this.byIp.set(owner, [...(this.byIp.get(owner) ?? []), now.getTime()]);
       return { clinicId: id, session };
     } catch (err) {
