@@ -400,6 +400,10 @@ $("#clock").textContent = hhmm();
       $("#tg-agenda").checked = false;
       $("#agenda-col").classList.add("hidden");
       document.title = "Chat del paciente · demo";
+      // El teléfono usa el alto que deja libre la barra de arriba (cambia si los controles bajan de línea).
+      const fit = () => document.body.style.setProperty("--top-h", `${document.querySelector(".topbar").offsetHeight}px`);
+      fit();
+      addEventListener("resize", fit);
       $("#tg-metrics").checked = false;
       $("#metrics").classList.add("hidden");
     }

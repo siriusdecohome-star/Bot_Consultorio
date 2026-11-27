@@ -1701,7 +1701,7 @@ function tourRender() {
   tour.navTo = navTo;
   // Cada vez que cambia lo que hay que mirar, la página se desplaza sola hasta ahí.
   const key = `${step}|${navTo ?? ""}|${title}`;
-  if (key !== tour.key) { tour.key = key; tour.scrolled = false; }
+  if (key !== tour.key) { tour.key = key; tour.scrolled = false; tour.scrollUntil = Date.now() + 3000; tour.lastScrollAt = 0; }
   tour.step = navTo ? null : step;
   if (!navTo) tourPrepare(step, t);
   cancelAnimationFrame(tour.raf);
@@ -1752,12 +1752,7 @@ function tourFollow() {
   let r = null;
   if (visible(el)) {
     const b = el.getBoundingClientRect();
-    // Desplazamiento automático: arriba del todo para el menú; al centro (o al principio, si es alto) para el resto.
-    if (!tour.scrolled) {
-      tour.scrolled = true;
-      if (tour.navTo) scrollTo({ top: 0, behavior: "smooth" });
-      else if (b.top < 70 || b.bottom > H - 20) el.scrollIntoView({ block: b.height > H * 0.7 ? "start" : "center", behavior: "smooth" });
-    }
+    tourScrollCheck(el, b);
     // Solo la parte visible del elemento (puede ser más alto que la pantalla).
     const top = Math.max(0, b.top - pad), bottom = Math.min(H, b.bottom + pad);
     const left = Math.max(0, b.left - pad), right = Math.min(W, b.right + pad);
@@ -1878,3 +1873,26 @@ $("body").addEventListener("click", (e) => {
     tourBackHere();
   }, 200);
 })();
+// Si la persona se desplaza por su cuenta, el recorrido deja de llevarla al elemento del paso.
+for (const ev of ["wheel", "touchmove"]) addEventListener(ev, () => { tour.scrollUntil = 0; }, { passive: true });
+/**
+ * Desplazamiento automático: arriba del todo para el menú; al centro (o al principio, si es alto) para el resto.
+ * Se insiste unos segundos porque las secciones terminan de cargar después y el contenido se corre;
+ * si la persona mueve la rueda del mouse, se deja de insistir. Corre en cada cuadro y también cada 300 ms.
+ */
+function tourScrollCheck(el = tour.target?.(), b = el && visible(el) ? el.getBoundingClientRect() : null) {
+  if (!el || !b || !$("#tour")) return;
+  const H = innerHeight, now = Date.now();
+  if (tour.navTo) {
+    if (!tour.scrolled) { tour.scrolled = true; scrollTo({ top: 0, behavior: "smooth" }); }
+    return;
+  }
+  if (now > (tour.scrollUntil ?? 0) || now - (tour.lastScrollAt ?? 0) < 450) return;
+  const tall = b.height > H * 0.7;
+  const off = tall ? b.top < 60 || b.top > H * 0.3 : b.top < 70 || b.bottom > H - 20;
+  if (!off) return;
+  tour.lastScrollAt = now;
+  el.style.scrollMarginTop = "90px";
+  el.scrollIntoView({ block: tall ? "start" : "center", behavior: "smooth" });
+}
+setInterval(() => tourScrollCheck(), 300);
