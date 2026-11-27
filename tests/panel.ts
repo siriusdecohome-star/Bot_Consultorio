@@ -140,6 +140,15 @@ try {
     assert.ok(r.json.conversion.tasa > 0);
   });
 
+  await check("Estadísticas: un día o un rango exacto de fechas (desordenado se ordena)", async () => {
+    const day = (await call("GET", "/stats?days=1", recep)).json;
+    assert.equal(day.daily.length, 1);
+    const r = (await call("GET", "/stats?from=2026-11-20&to=2026-11-16", recep)).json;
+    assert.deepEqual([r.from, r.to, r.days, r.daily.length], ["2026-11-16", "2026-11-20", 5, 5]);
+    const bad = (await call("GET", "/stats?from=hoy&to=2026-11-20&days=7", recep)).json;
+    assert.equal(bad.days, 7, "fechas inválidas: se usa el período rápido");
+  });
+
   await check("Costos: por mes con proyección; recepción no puede verlos", async () => {
     assert.equal((await call("GET", "/costs", recep)).status, 403);
     const m = (conv: string, at: string, costUsd: number): TurnMetric => ({ conversationId: conv, provider: "claude", model: "claude-haiku-5-5", latencyMs: 900, inputTokens: 3000, outputTokens: 200, cacheReadTokens: 0, costUsd, modelCalls: 2, tools: [], at });

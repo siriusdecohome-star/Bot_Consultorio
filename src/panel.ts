@@ -44,6 +44,15 @@ export interface PanelOptions {
   storeFor: (user: PanelUser, clinicId: string) => Store;
 }
 
+/** Rango de fechas de las estadísticas (?from=&to=, YYYY-MM-DD): ordenado y de hasta 366 días. */
+function statsRange(from: unknown, to: unknown): { from?: string; to?: string } {
+  const ok = (x: unknown): x is string => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x);
+  if (!ok(from) || !ok(to)) return {};
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  const span = (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 864e5;
+  return span <= 366 ? { from: a, to: b } : {};
+}
+
 /** Middleware: exige sesión. Devuelve 401 en JSON si no hay. */
 export function requireSession(auth: AuthBackend) {
   return async (req: PanelRequest, res: Response, next: NextFunction) => {
@@ -720,13 +729,14 @@ export function createPanelRouter(opts: PanelOptions): Router {
 
   r.get("/stats", async (req: PanelRequest, res) => {
     const store = req.store!;
-    const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 180);
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 180);
+    const range = statsRange(req.query.from, req.query.to);
     const [patients, conversations, appointments, handoffs] = await Promise.all([
       store.listPatients(), store.listConversations(), store.listAppointments(), store.listHandoffs(),
     ]);
     const notTest = <T extends { channel: string }>(x: T) => x.channel !== "test";
     res.json(buildStats({
-      tz: TZ(), now: clock(), days,
+      tz: TZ(), now: clock(), days, ...range,
       patients: patients.filter(notTest), conversations: conversations.filter(notTest), appointments, handoffs,
     }));
   });
@@ -873,10 +883,11 @@ export function createPanelRouter(opts: PanelOptions): Router {
       rows = list.map((e) => [e.patientName, e.treatment, e.fromDate, e.toDate, e.franja, e.status, e.offeredSlot?.replace("T", " ") ?? "",
         e.declinedSlots.map((s) => s.replace("T", " ")).join(", "), fdt(e.createdAt)]);
     } else if (kind === "estadisticas") {
-      const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 365);
+      const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+      const range = statsRange(req.query.from, req.query.to);
       const [patients, conversations, appointments, handoffs] = await Promise.all([store.listPatients(), store.listConversations(), store.listAppointments(), store.listHandoffs()]);
       const notTest = <T extends { channel: string }>(x: T) => x.channel !== "test";
-      const s = buildStats({ tz, now: clock(), days, patients: patients.filter(notTest), conversations: conversations.filter(notTest), appointments, handoffs });
+      const s = buildStats({ tz, now: clock(), days, ...range, patients: patients.filter(notTest), conversations: conversations.filter(notTest), appointments, handoffs });
       headers = ["Día", "Consultas", "Pacientes nuevos", "Turnos agendados", "Turnos cancelados"];
       rows = s.daily.map((d) => [d.date, d.consultas, d.pacientesNuevos, d.turnosAgendados, d.turnosCancelados]);
       rows.push(["Total", s.totals.consultas, s.totals.pacientesNuevos, s.totals.turnosAgendados, s.totals.turnosCancelados]);

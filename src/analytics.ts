@@ -16,6 +16,9 @@ export interface StatsInput {
   tz: string;
   now: Date;
   days: number;
+  /** Rango exacto (YYYY-MM-DD, inclusive). Si viene, reemplaza a «days». */
+  from?: string;
+  to?: string;
   patients: Patient[];
   conversations: Conversation[];
   appointments: Appointment[];
@@ -31,8 +34,10 @@ export interface DailyRow {
 }
 
 export function buildStats(i: StatsInput) {
-  const end = DateTime.fromJSDate(i.now).setZone(i.tz).startOf("day");
-  const start = end.minus({ days: i.days - 1 });
+  const today = DateTime.fromJSDate(i.now).setZone(i.tz).startOf("day");
+  const end = i.to ? DateTime.fromISO(i.to, { zone: i.tz }).startOf("day") : today;
+  const start = i.from ? DateTime.fromISO(i.from, { zone: i.tz }).startOf("day") : end.minus({ days: i.days - 1 });
+  const days = Math.round(end.diff(start, "days").days) + 1;
   const rows = new Map<string, DailyRow>();
   for (let d = start; d <= end; d = d.plus({ days: 1 })) {
     const k = d.toISODate()!;
@@ -88,7 +93,7 @@ export function buildStats(i: StatsInput) {
   return {
     from: start.toISODate(),
     to: end.toISODate(),
-    days: i.days,
+    days,
     daily,
     totals: {
       consultas: sum("consultas"),

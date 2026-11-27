@@ -62,7 +62,7 @@ const SERIES = ["#3987e5", "#d95926"];
 const state = {
   date: null, clinic: null, role: null, email: null, view: "bandeja",
   convFilter: "activas", convLine: "", lines: [], showMore: false, openConv: null, convSig: "", profileDirty: false,
-  patFilter: "todos", statsDays: 30, weekFrom: null, agDays: 7, agenda: null,
+  patFilter: "todos", patPage: 1, patPer: 15, patList: [], statsDays: 30, statsFrom: "", statsTo: "", weekFrom: null, agDays: 7, agenda: null,
   knowledge: null, canEdit: false, testerSession: null,
 };
 
@@ -1061,6 +1061,25 @@ $("#fu-save").addEventListener("click", async () => {
 async function loadPatients() {
   const q = $("#pat-q").value.trim();
   const d = await api(`/patients?tipo=${state.patFilter}${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+  state.patList = d.patients;
+  renderPatients();
+  stamp();
+  loadReactivation().catch(() => {});
+}
+/** Tabla de pacientes de a una página (15, 30 o 50 por página). */
+function renderPatients() {
+  const all = state.patList;
+  const pages = Math.max(1, Math.ceil(all.length / state.patPer));
+  state.patPage = Math.min(Math.max(1, state.patPage), pages);
+  const from = (state.patPage - 1) * state.patPer;
+  const d = { patients: all.slice(from, from + state.patPer) };
+  $("#pat-count").textContent = `${all.length} ${all.length === 1 ? "persona" : "personas"}`;
+  $("#pat-pager").innerHTML = all.length > 15 || state.patPer !== 15 ? `
+    <label class="field-inline">Por página <select id="pat-per">${[15, 30, 50].map((n) => `<option${n === state.patPer ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+    <span class="hint">${from + 1}–${Math.min(from + state.patPer, all.length)} de ${all.length}</span>
+    <button class="btn ghost small" data-page="-1"${state.patPage <= 1 ? " disabled" : ""}>‹ Anterior</button>
+    <span class="hint">Página ${state.patPage} de ${pages}</span>
+    <button class="btn ghost small" data-page="1"${state.patPage >= pages ? " disabled" : ""}>Siguiente ›</button>` : "";
   $("#patients").innerHTML = d.patients.length ? `
     <tr><th>Paciente</th><th>Tipo</th><th>Etiquetas</th><th>Canal</th><th>Origen</th><th>Turnos</th><th>Próximo turno</th><th>Última visita</th><th>Último contacto</th><th></th></tr>
     ${d.patients.map((p) => `<tr data-patient-row="${esc(p.id)}" tabindex="0">
@@ -1075,9 +1094,20 @@ async function loadPatients() {
       <td class="ch">${esc(fShort(p.lastContact))}</td>
       <td class="nowrap">${p.conversationId ? `<button class="btn ghost small" data-goconv="${esc(p.conversationId)}">Chat</button>` : ""}</td>
     </tr>`).join("")}` : `<tr><td class="empty">No hay pacientes para mostrar.</td></tr>`;
-  stamp();
-  loadReactivation().catch(() => {});
 }
+$("#pat-pager").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-page]");
+  if (!b) return;
+  state.patPage += Number(b.dataset.page);
+  renderPatients();
+  $("#patients").scrollIntoView({ block: "start", behavior: "smooth" });
+});
+$("#pat-pager").addEventListener("change", (e) => {
+  if (e.target.id !== "pat-per") return;
+  state.patPer = Number(e.target.value);
+  state.patPage = 1;
+  renderPatients();
+});
 $("#patients").addEventListener("click", (e) => {
   if (e.target.closest("button")) return;
   const tr = e.target.closest("[data-patient-row]");
@@ -1100,8 +1130,8 @@ $("#reactivation").addEventListener("click", async (e) => {
   try { await post(`/reactivation/${encodeURIComponent(b.dataset.react)}`); toast("Invitación enviada al paciente"); loadReactivation(); }
   catch (err) { toast(err.message, true); b.disabled = false; }
 });
-segment("#pat-filter", (f) => { state.patFilter = f; loadPatients(); });
-$("#pat-q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(loadPatients, 250); });
+segment("#pat-filter", (f) => { state.patFilter = f; state.patPage = 1; loadPatients(); });
+$("#pat-q").addEventListener("input", () => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.patPage = 1; loadPatients(); }, 250); });
 
 // =====================================================================
 // Estadísticas (gráficos SVG propios, con tooltip)
@@ -1148,9 +1178,12 @@ function barChart(sel, daily, series) {
 }
 
 async function loadStats() {
-  const s = await api(`/stats?days=${state.statsDays}`);
+  const s = await api(`/stats?${statsQuery()}`);
+  $("#st-from").value = s.from;
+  $("#st-to").value = s.to;
+  const period = s.days === 1 ? (s.to === dayKeyOf(new Date().toISOString()) ? "hoy" : dateOnly(s.to)) : state.statsFrom ? `del ${dateOnly(s.from)} al ${dateOnly(s.to)}` : `últimos ${s.days} días`;
   $("#stats-kpis").innerHTML = kpiHtml([
-    ["Consultas", int(s.totals.consultas), `últimos ${s.days} días`],
+    ["Consultas", int(s.totals.consultas), period],
     ["Pacientes nuevos", int(s.totals.pacientesNuevos), `${int(s.conversion.leadsPromo)} llegaron por campañas`],
     ["Turnos agendados", int(s.totals.turnosAgendados), "reservas nuevas"],
     ["Turnos cancelados", int(s.totals.turnosCancelados), "horarios liberados"],
@@ -1188,7 +1221,18 @@ async function loadStats() {
     [...s.daily].reverse().map((d) => `<tr><td>${esc(dateOnly(d.date))}</td><td>${d.consultas}</td><td>${d.pacientesNuevos}</td><td>${d.turnosAgendados}</td><td>${d.turnosCancelados}</td></tr>`).join("");
   stamp();
 }
-segment("#stats-range", (d) => { state.statsDays = Number(d); loadStats(); });
+segment("#stats-range", (d) => { state.statsDays = Number(d); state.statsFrom = state.statsTo = ""; loadStats(); });
+/** Período de las estadísticas: los botones rápidos (Hoy, 7, 30, 90 días) o un día/rango elegido en los calendarios. */
+const statsQuery = () => (state.statsFrom ? `from=${state.statsFrom}&to=${state.statsTo || state.statsFrom}` : `days=${state.statsDays}`);
+for (const id of ["#st-from", "#st-to"]) {
+  $(id).addEventListener("change", () => {
+    const a = $("#st-from").value, b = $("#st-to").value || a;
+    if (!a) return;
+    state.statsFrom = a; state.statsTo = b;
+    for (const x of $$("#stats-range button")) x.classList.remove("on");
+    loadStats().catch((e) => toast(e.message, true));
+  });
+}
 
 // =====================================================================
 // Costos (solo admin)
@@ -1200,7 +1244,7 @@ async function loadCosts() {
   const m = c.currentMonth;
   note.hidden = !(c.onlyMock || c.simulated || !c.months.length);
   note.textContent = c.simulated
-    ? `Los datos de ejemplo tienen costos ESTIMADOS con los precios oficiales de Claude Haiku 5.5 (figuran como «estimado»): no son mediciones. Medido este mes: ${usd(m.measuredUsd)}. Cada mensaje real con IA registra sus tokens y su costo medido.`
+    ? `Los datos de ejemplo tienen costos ESTIMADOS con los precios oficiales de Claude Haiku 5.5 (figuran como «estimado»): no son mediciones. Medido este mes: ${usd(m.measuredUsd)}.\nCada mensaje real con IA registra sus tokens y su costo medido.`
     : c.months.length
       ? "Hasta ahora respondió el modo sin IA (reglas), que no tiene costo. Con LLM_PROVIDER=claude u openai, cada mensaje registra sus tokens y su costo."
       : "Todavía no hay mensajes registrados en esta clínica.";
@@ -1431,7 +1475,7 @@ document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-export]");
   if (!b) return;
   const p = new URLSearchParams({ clinic: state.clinic ?? "" });
-  if (b.dataset.export === "estadisticas") p.set("days", String(state.statsDays));
+  if (b.dataset.export === "estadisticas") { if (state.statsFrom) { p.set("from", state.statsFrom); p.set("to", state.statsTo || state.statsFrom); } else p.set("days", String(state.statsDays)); }
   location.href = `/api/panel/export/${b.dataset.export}?${p}`;
 });
 // =====================================================================
@@ -1574,8 +1618,8 @@ const TOUR_STEPS = {
   profesionales: {
     view: "profesionales",
     get: (t) => t.excDone
-      ? { target: "#exc-result", title: "9. Así queda registrada", text: "El panel lista los turnos afectados (también el tuyo) y el asistente ya no ofrece esos horarios. Con «Avisar por el bot» les escribe a esos pacientes para reprogramar.", next: true }
-      : { target: "#exc-form", title: "9. Un profesional no viene", text: `Imaginá que ${profName(tourAppt()?.professionalId)} falta el día de tu turno. Ya completamos la ausencia: tocá «Cargar» y mirá qué pasa.` },
+      ? { target: "#exc-result", title: "9. Así queda registrada", text: "El panel lista los turnos de ese día que quedan afectados y el asistente deja de ofrecer esos horarios. Con «Avisar por el bot» les escribe a esos pacientes para reprogramar.", next: true }
+      : { target: "#exc-form", title: "9. Un profesional no viene", text: `Imaginá que ${profName(tourAppt()?.professionalId)} no puede atender un día. Ya completamos la ausencia: tocá «Cargar excepción» y mirá qué pasa con los turnos de ese día.` },
   },
   seguimientos: { view: "seguimientos", get: () => ({ target: "#fu-rules", title: "10. Recordatorios y seguimientos", text: "Elegís cuándo sale cada recordatorio (72, 24 o 2 horas antes), el seguimiento después del turno y la reactivación de pacientes.", next: true }) },
   aprendizaje: {

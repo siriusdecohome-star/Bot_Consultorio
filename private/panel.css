@@ -481,3 +481,31 @@ code { background: var(--panel2); border: 1px solid var(--line); border-radius: 
 .tour .btn.pulse { animation: tour-btn 1.4s ease-in-out infinite; }
 @keyframes tour-btn { 50% { box-shadow: 0 0 0 6px #25d36633; } }
 .kb input.tour-mark { border-color: var(--lime); box-shadow: 0 0 0 3px #c8f25a44; }
+
+/* Resumen: grilla de tres columnas, mismo alto por fila; listas largas con su propio desplazamiento. */
+.sum-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); align-items: stretch; }
+.sum-grid > .card { display: flex; flex-direction: column; min-height: 0; }
+.sum-grid > .card.span-all { grid-column: 1 / -1; }
+.sum-grid > .card:not(.span-all) > ul { max-height: 380px; overflow-y: auto; padding-right: 4px; }
+.sum-grid > .card.folded { align-self: start; }
+.sum-grid .leads { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px 14px; max-height: none; }
+.sum-grid .span-all .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .sum-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .sum-grid { grid-template-columns: minmax(0, 1fr); } .sum-grid .span-all .metrics { grid-template-columns: 1fr 1fr; } }
+/* Encabezados de tarjeta en una sola línea (las plegadas quedan todas del mismo alto). */
+.card-head.foldable { flex-wrap: nowrap; }
+.card-head.foldable .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Notas con salto de línea */
+#m-note { white-space: pre-line; }
+/* Pacientes: barra de filtros en una fila y paginación */
+.pat-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.pat-bar .search { flex: 1 1 320px; max-width: 520px; }
+.pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.pager:empty { display: none; }
+/* Excepciones: más aire antes del botón */
+#exc-form button[type="submit"] { margin-top: 10px; }
+#cost-note { white-space: pre-line; }
+.card-head.foldable h2 { flex: 0 0 auto; white-space: nowrap; }
+.card-head.foldable .hint { flex: 1 1 0; text-align: right; }
+.card-head.foldable { justify-content: flex-start; }
+.card-head.foldable > :last-child:not(h2):not(.fold) { margin-left: auto; }
