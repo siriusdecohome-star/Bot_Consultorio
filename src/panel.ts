@@ -765,6 +765,9 @@ export function createPanelRouter(opts: PanelOptions): Router {
     const problem = validateKnowledge(req.body?.knowledge);
     if (problem) return res.status(400).json({ error: problem });
     const k = req.body.knowledge as ClinicKnowledge;
+    // El formulario no edita la especialidad de cada tratamiento: se conserva la que ya tenía (mismo nombre).
+    const prev = new Map((req.runtime!.profile.knowledge.treatments ?? []).map((t) => [t.name, t]));
+    k.treatments = k.treatments.map((t) => (t.specialty || !prev.get(t.name)?.specialty ? t : { ...t, specialty: prev.get(t.name)!.specialty }));
     try {
       await req.store!.updateKnowledge(k);
     } catch (err) {

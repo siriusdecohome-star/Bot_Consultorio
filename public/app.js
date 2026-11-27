@@ -400,7 +400,11 @@ $("#clock").textContent = hhmm();
       $("#tg-agenda").checked = false;
       $("#agenda-col").classList.add("hidden");
       document.title = "Chat del paciente · demo";
-      // El teléfono entra completo: la página arranca desplazada hasta él (el menú de arriba queda fuera de vista).
+      // El teléfono conserva sus proporciones y se achica entero (texto incluido) para entrar en el alto
+      // de la pantalla; la página arranca desplazada hasta él (el menú de arriba queda fuera de vista).
+      const fit = () => document.body.style.setProperty("--phone-zoom", String(Math.min(1, Math.max(0.68, (innerHeight - 24) / 780))));
+      fit();
+      addEventListener("resize", fit);
       requestAnimationFrame(() => document.querySelector(".phone").scrollIntoView({ block: "start" }));
       $("#tg-metrics").checked = false;
       $("#metrics").classList.add("hidden");

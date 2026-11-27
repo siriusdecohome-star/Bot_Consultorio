@@ -182,6 +182,11 @@ try {
     assert.match(after.messages.join(" "), /USD 45/);
     const faq = await say("web:precio-2", "¿atienden a domicilio?");
     assert.match(faq.messages.join(" "), /solo atendemos en el consultorio/);
+    // Guardar desde el formulario (sin especialidad) no borra la especialidad de cada tratamiento.
+    const sinEsp = { ...k, treatments: k.treatments.map(({ specialty, ...t }: any) => t) };
+    assert.equal((await call("PUT", "/knowledge", admin, { knowledge: sinEsp })).status, 200);
+    const saved = (await call("GET", "/knowledge", admin)).json.knowledge;
+    assert.ok(saved.treatments.filter((t: any) => t.specialty).length >= 2, "se conservan las especialidades");
   });
 
   await check("Conocimiento: recepción no puede editarlo y se rechazan horarios inválidos", async () => {

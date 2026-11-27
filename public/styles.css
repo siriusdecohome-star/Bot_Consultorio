@@ -362,7 +362,7 @@ body.public-demo .toggle:has(#tg-agenda) { display: none !important; }
 @keyframes coach-btn { 50% { box-shadow: 0 0 0 7px #25d36640; transform: scale(1.03); } }
 .coach-hint { margin-top: 10px !important; padding: 8px 10px; border-radius: 10px; background: #c8f25a1a; border: 1px dashed #c8f25a88; color: #f3fbe0 !important; font-size: 13.5px !important; }
 
-/* Demo pública: el teléfono mantiene su ancho y usa a lo sumo el alto de la pantalla (el menú de arriba queda fuera de vista). */
+/* Demo pública: teléfono con proporciones de celular real (375×780) que se achica entero para entrar en el alto de la pantalla. */
 body.public-demo .topbar { padding: 10px 24px; }
 body.public-demo .stage { padding-top: 4px; padding-bottom: 12px; }
-body.public-demo .phone { height: clamp(520px, calc(100svh - 24px), 780px); scroll-margin-top: 12px; }
+body.public-demo .phone { width: 375px; height: 780px; zoom: var(--phone-zoom, 1); scroll-margin-top: 12px; }

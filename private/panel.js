@@ -1363,7 +1363,11 @@ function readKnowledge() {
     cancellationPolicy: v("cancellationPolicy"), emergencies: v("emergencies"), tone: v("tone") || undefined,
     promo: { name: v("promoName"), detail: v("promoDetail") },
     hours,
-    treatments: rows("#kb-treatments").filter((t) => t.name).map((t) => ({ name: t.name, price: t.price || "consultar", duration: t.duration || "30 min", notes: t.notes || "" })),
+    // Se conservan los campos que este formulario no muestra (especialidad, etc.) del tratamiento con ese nombre.
+    treatments: rows("#kb-treatments").filter((t) => t.name).map((t) => ({
+      ...(state.knowledge?.treatments ?? []).find((x) => x.name === t.name),
+      name: t.name, price: t.price || "consultar", duration: t.duration || "30 min", notes: t.notes || "",
+    })),
     faq: rows("#kb-faq").filter((f) => f.q && f.a),
     menu: { enabled: form.elements.menuEnabled.checked, intro: v("menuIntro"), button: v("menuButton") || "Ver opciones", options },
   };
