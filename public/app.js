@@ -460,11 +460,11 @@ function tourCoach() {
     document.body.appendChild(card);
   }
   card.classList.toggle("small", !!c.small);
-  card.innerHTML = `<span class="coach-step">Recorrido guiado</span><h3>${esc(c.title)}</h3><p>${esc(c.text)}</p>${c.action ? `<button type="button" class="coach-btn" data-coach="panel">${esc(c.action)} ↗</button>` : ""}`;
+  card.innerHTML = `<span class="coach-step">Recorrido guiado</span><h3>${esc(c.title)}</h3><p>${esc(c.text)}</p>${c.action ? `<button type="button" class="coach-btn${c.small ? "" : " pulse"}" data-coach="panel">${esc(c.action)} ↗</button><p class="coach-hint" hidden>Si no cambió sola, tocá la pestaña <b>«Panel»</b> arriba, en la barra del navegador. ⬆</p>` : ""}`;
   coach.target = c.target ?? null;
   if (c.focus) setTimeout(() => input.focus(), 50);
-  const here = ["chat-book", "chat-see"].includes(t.step);
-  document.title = `${here && document.hidden ? "👉 Seguí acá · " : ""}Chat del paciente · demo`;
+  window.name = "chat-demo"; // así el panel puede traer esta pestaña al frente sin recargarla
+  coachBlink(document.hidden && t.step === "chat-see" && !state.humanSeenShown);
   cancelAnimationFrame(coach.raf);
   coachFollow();
 }
@@ -509,12 +509,33 @@ function coachFollow() {
   }
   coach.raf = requestAnimationFrame(coachFollow);
 }
+/** Título que parpadea en esta pestaña cuando hay que venir a mirarla. */
+function coachBlink(on) {
+  clearInterval(coach.blink);
+  const base = "Chat del paciente · demo";
+  document.title = base;
+  if (!on) return;
+  let alt = false;
+  coach.blink = setInterval(() => { alt = !alt; document.title = alt ? `👉 Mirá acá · ${base}` : base; }, 900);
+}
 document.body.addEventListener("click", (e) => {
-  if (!e.target.closest("[data-coach]")) return;
-  // Vuelve a la pestaña del panel (la que abrió este chat); si se cerró, la abre de nuevo.
-  const w = window.opener && !window.opener.closed ? window.opener : null;
-  if (w) { try { w.focus(); } catch {} }
-  else window.open("/panel#bandeja", "panel-demo");
+  const b = e.target.closest("[data-coach]");
+  if (!b) return;
+  // Trae al frente la pestaña del panel sin recargarla (se llama «panel-demo»); si se cerró, la abre.
+  try {
+    const w = window.open("", "panel-demo");
+    if (w && w.location.href === "about:blank") w.location.href = "/panel#bandeja";
+    w?.focus();
+  } catch { window.open("/panel#bandeja", "panel-demo"); }
+  // Por si el navegador no cambia de pestaña solo: se indica dónde tocar.
+  const hint = b.parentElement.querySelector(".coach-hint");
+  if (hint) hint.hidden = false;
+  b.textContent = "Volvé a la pestaña «Panel» ⬆";
 });
 addEventListener("storage", (e) => { if (e.key === TOUR_KEY) tourCoach(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { pollOutbox(); tourCoach(); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { tourCoach(); return; }
+  if (state.humanSeen) state.humanSeenShown = true;
+  pollOutbox();
+  tourCoach();
+});

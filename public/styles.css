@@ -358,3 +358,6 @@ body.public-demo .toggle:has(#tg-agenda) { display: none !important; }
 .coach p { margin: 0; font-size: 14px; line-height: 1.5; color: #d6e7dd; }
 .coach-btn { margin-top: 10px; background: #25d366; color: #04301a; border: 0; border-radius: 10px; padding: 8px 14px; font: inherit; font-weight: 700; cursor: pointer; }
 .coach.small { opacity: .92; }
+.coach-btn.pulse { animation: coach-btn 1.3s ease-in-out infinite; }
+@keyframes coach-btn { 50% { box-shadow: 0 0 0 7px #25d36640; transform: scale(1.03); } }
+.coach-hint { margin-top: 10px !important; padding: 8px 10px; border-radius: 10px; background: #c8f25a1a; border: 1px dashed #c8f25a88; color: #f3fbe0 !important; font-size: 13.5px !important; }

@@ -853,6 +853,7 @@ $("#exc-form").addEventListener("submit", async (e) => {
     $("#exc-result").innerHTML = affectedHtml(r.exception.id, r.affected, null);
     e.target.elements.reason.value = "";
     await loadProfessionals();
+    tourEvent("exception");
   } catch (err) { toast(err.message, true); }
 });
 
@@ -1333,6 +1334,8 @@ form.addEventListener("submit", async (e) => {
     await put("/knowledge", { knowledge: k });
     state.knowledge = k;
     toast("Guardado: el asistente ya responde con estos datos");
+    for (const m of $$("#kb-form .tour-mark")) m.classList.remove("tour-mark");
+    tourEvent("kb-saved");
   } catch (err) { toast(err.message, true); }
   for (const b of btns) b.disabled = false;
 });
@@ -1402,6 +1405,7 @@ function testerSay(text) {
     if (!r.messages.length) th.insertAdjacentHTML("beforeend", '<div class="b system">(sin respuesta)</div>');
     $("#tester-tools").textContent = r.tools.length ? `Herramientas usadas: ${r.tools.join(", ")}` : "Respondió sin herramientas";
     th.scrollTop = th.scrollHeight;
+    tourEvent("tester");
   }).catch((err) => {
     $("#tester-wait")?.remove();
     th.insertAdjacentHTML("beforeend", `<div class="b system">${esc(err.message)}</div>`);
@@ -1534,31 +1538,60 @@ function tourSet(patch) {
   return t;
 }
 const tourActive = () => { const t = tourGet(); return !!t && t.clinic === state.clinic && t.step !== "fin"; };
+const visible = (el) => !!el && el.getClientRects().length > 0 && el.getBoundingClientRect().width > 0;
+/** La ficha está a la vista (en pantallas medianas se abre con el botón «Ficha»). */
+const profileShown = () => !visible($("#show-profile")) || $("#inbox-layout").classList.contains("profile-open");
+const tourAppt = () => tourGet()?.appt ?? null;
+const profName = (id) => state.agenda?.professionals.find((p) => p.id === id)?.name ?? "ese profesional";
 
 /** Pasos que se hacen en la pestaña del chat: acá solo se avisa que hay que ir allá. */
 const CHAT_STEPS = new Set(["chat-book", "chat-see"]);
+/**
+ * Cada paso puede variar según lo que ya pasó (fase): por eso `get(t)` devuelve
+ * el texto, el elemento señalado y cómo se avanza en ese momento.
+ */
 const TOUR_STEPS = {
-  welcome: { title: "Probá tu asistente en 3 minutos", text: `Vas a hacer de paciente: se abre el chat en otra pestaña, sacás un turno y después lo ves llegar acá, al panel de tu equipo.\n\n${CLARIFY}`, action: ["Abrir el chat del paciente ↗", "open-chat"] },
-  "chat-book": { title: "👉 Seguí en la pestaña «Chat del paciente»", text: "Ahí te guiamos para sacar un turno. Cuando lo reserves te avisamos para volver a esta pestaña.", action: ["Volver a abrir el chat ↗", "open-chat"] },
-  "inbox-open": { view: "bandeja", target: () => $(`#inbox .conv[data-id="${CSS.escape(tourGet()?.conv ?? "")}"]`), title: "1. Tu conversación llegó al instante", text: "Es la primera de la lista. Tocala para abrirla." },
-  take: { view: "bandeja", target: '[data-act="takeover"]', title: "2. Tomá la conversación", text: "Así una persona del equipo atiende y el asistente deja de responder. Tocá «Tomar conversación»." },
-  // Variante si el asistente ya cerró la conversación al confirmar el turno.
-  "take-closed": { view: "bandeja", target: '[data-act="reopen"]', title: "2. Reabrí la conversación", text: "El asistente resolvió tu reserva y cerró la conversación solo. Tocá «Reabrir» para atenderla vos." },
-  reply: { view: "bandeja", target: "#reply", title: "3. Respondele al paciente", text: "Escribí un mensaje, por ejemplo «Hola, soy de recepción. ¿Te ayudo con algo más?», y envialo." },
-  "chat-see": { title: "4. 👉 Mirá la pestaña «Chat del paciente»", text: "Tu mensaje le llegó al paciente. Andá a esa pestaña para verlo y después volvé acá.", action: ["Ir al chat ↗", "open-chat"] },
-  "back-bot": { view: "bandeja", target: '[data-act="release"]', title: "5. Devolvé la conversación al asistente", text: "Cuando terminás, el asistente vuelve a atender solo. Tocá «Devolver al bot»." },
-  profile: { view: "bandeja", target: "#profile-pane", title: "6. La ficha del paciente", text: "El asistente guardó solo el nombre que escribiste en el chat. Acá el equipo puede corregirlo y sumar etiquetas y notas internas.", next: true },
-  agenda: { view: "agenda", target: () => $(`#cal [data-appt="${CSS.escape(tour.apptId ?? "")}"]`), title: "7. Tu turno en la agenda", text: "Este es el turno que sacaste en el chat, en la columna de su profesional. Tocalo para ver el detalle." },
-  "appt-states": { view: "agenda", target: "#drawer", title: "8. Qué significa cada estado", text: "«Reservado · falta confirmar»: el horario está tomado y el paciente todavía no confirmó que va a venir.\n\nCuando responde «Confirmo» al recordatorio, o lo marcás vos, pasa a «Asistencia confirmada».", next: true },
-  profesionales: { view: "profesionales", target: "#exc-form", title: "9. Ausencias de un profesional", text: "Si alguien falta, cargás la ausencia acá: el panel lista los turnos afectados y el asistente les ofrece reprogramar.", next: true },
-  seguimientos: { view: "seguimientos", target: "#fu-rules", title: "10. Recordatorios y seguimientos", text: "Elegís cuándo sale cada recordatorio (72, 24 o 2 horas antes), el seguimiento después del turno y la reactivación de pacientes.", next: true },
-  aprendizaje: { view: "aprendizaje", target: "#kb-form", title: "11. Lo que sabe el asistente", text: "Precios, horarios, preguntas frecuentes y documentos. Cambiás algo, guardás y el asistente ya responde con el dato nuevo.", next: true },
-  estadisticas: { view: "estadisticas", target: "#stats-kpis", title: "12. Estadísticas", text: "Consultas, turnos, conversión y cuánto resuelve el asistente sin ayuda, con 30 días de datos de ejemplo.", next: true },
-  end: { title: "¡Listo! Ya viste todo el circuito", text: "Ahora probá lo que quieras: escribile más al chat, cambiá una regla o un precio. Tu copia se borra sola en 24 horas.", action: ["Terminar recorrido", "finish"] },
+  welcome: { get: () => ({ title: "Probá tu asistente en 3 minutos", text: `Vas a hacer de paciente: se abre el chat en otra pestaña, sacás un turno y después lo ves llegar acá, al panel de tu equipo.\n\n${CLARIFY}`, action: ["Abrir el chat del paciente ↗", "open-chat"] }) },
+  "chat-book": { get: () => ({ title: "👉 Seguí en la pestaña «Chat del paciente»", text: "Ahí te guiamos para sacar un turno. Cuando lo reserves te avisamos para volver a esta pestaña.", action: ["Ir al chat ↗", "open-chat"] }) },
+  "inbox-open": { view: "bandeja", get: (t) => ({ target: () => $(`#inbox .conv[data-id="${CSS.escape(t.conv ?? "")}"]`), title: "1. Tu conversación llegó al instante", text: "Es la primera de la lista. Tocala para abrirla." }) },
+  take: {
+    view: "bandeja",
+    get: () => state.convState === "cerrada"
+      ? { target: '[data-act="reopen"]', title: "2. Reabrí la conversación", text: "El asistente resolvió tu reserva y cerró la conversación solo. Tocá «Reabrir» para atenderla vos." }
+      : { target: '[data-act="takeover"]', title: "2. Tomá la conversación", text: "Así una persona del equipo atiende y el asistente deja de responder. Tocá «Tomar conversación»." },
+  },
+  reply: { view: "bandeja", get: () => ({ target: "#reply", title: "3. Respondele al paciente", text: "Escribí un mensaje, por ejemplo «Hola, soy de recepción. ¿Te ayudo con algo más?», y envialo." }) },
+  "chat-see": { get: () => ({ title: "4. 👉 Mirá la pestaña «Chat del paciente»", text: "Tu mensaje le llegó al paciente. Andá a esa pestaña para verlo y después volvé acá.", action: ["Ir al chat ↗", "open-chat"] }) },
+  "back-bot": { view: "bandeja", get: () => ({ target: '[data-act="release"]', title: "5. Devolvé la conversación al asistente", text: "Cuando terminás, el asistente vuelve a atender solo. Tocá «Devolver al bot»." }) },
+  profile: {
+    view: "bandeja",
+    get: () => profileShown()
+      ? { target: "#profile-pane", title: "6. La ficha del paciente", text: "El asistente guardó solo el nombre que escribiste en el chat y tu turno. Acá el equipo puede corregir datos y sumar etiquetas y notas internas.", next: true }
+      : { target: "#show-profile", title: "6. La ficha del paciente", text: "Tocá «Ficha» para ver los datos que guardó el asistente." },
+  },
+  agenda: { view: "agenda", get: () => ({ target: () => $(`#cal [data-appt="${CSS.escape(tourAppt()?.id ?? "")}"]`), title: "7. Tu turno en la agenda", text: "Este es el turno que sacaste en el chat, en la columna de su profesional. Tocalo para ver el detalle." }) },
+  "appt-states": { view: "agenda", get: () => ({ target: "#drawer", title: "8. Qué significa cada estado", text: "«Reservado · falta confirmar»: el horario está tomado y el paciente todavía no confirmó que va a venir.\n\nCuando responde «Confirmo» al recordatorio, o lo marcás vos, pasa a «Asistencia confirmada».", next: true }) },
+  profesionales: {
+    view: "profesionales",
+    get: (t) => t.excDone
+      ? { target: "#exc-result", title: "9. Así queda registrada", text: "El panel lista los turnos afectados (también el tuyo) y el asistente ya no ofrece esos horarios. Con «Avisar por el bot» les escribe a esos pacientes para reprogramar.", next: true }
+      : { target: "#exc-form", title: "9. Un profesional no viene", text: `Imaginá que ${profName(tourAppt()?.professionalId)} falta el día de tu turno. Ya completamos la ausencia: tocá «Cargar» y mirá qué pasa.` },
+  },
+  seguimientos: { view: "seguimientos", get: () => ({ target: "#fu-rules", title: "10. Recordatorios y seguimientos", text: "Elegís cuándo sale cada recordatorio (72, 24 o 2 horas antes), el seguimiento después del turno y la reactivación de pacientes.", next: true }) },
+  aprendizaje: {
+    view: "aprendizaje",
+    get: (t) => t.kb === "asked"
+      ? { target: () => $("#tester-form")?.closest(".card"), title: "11. Ya responde con el dato nuevo", text: "El asistente contestó con el precio que acabás de guardar, sin reiniciar nada. Lo mismo pasa con horarios, preguntas frecuentes y documentos.", next: true }
+      : t.kb === "saved"
+        ? { target: () => $("#tester-form")?.closest(".card"), title: "11. Preguntale al asistente", text: "Ya dejamos escrita la pregunta en el probador: tocá «Enviar»." }
+        : { target: () => $("#kb-treatments")?.closest("fieldset"), title: "11. Enseñale algo nuevo", text: "Cambiamos el precio de la limpieza (resaltado). Guardalo y después probamos si el asistente ya lo sabe.", action: ["Guardar cambios", "kb-save"] },
+  },
+  estadisticas: { view: "estadisticas", get: () => ({ target: '.view[data-view="estadisticas"]', big: true, title: "12. Estadísticas", text: "Bajá para ver todo: consultas por día, turnos, conversión, tratamientos más pedidos y cuánto resuelve el asistente sin ayuda (30 días de ejemplo).", next: true }) },
+  end: { get: () => ({ title: "¡Listo! Ya viste todo el circuito", text: "Ahora probá lo que quieras: escribile más al chat, cambiá una regla o un precio. Tu copia se borra sola en 24 horas.", action: ["Terminar recorrido", "finish"] }) },
 };
-const TOUR_ORDER = Object.keys(TOUR_STEPS).filter((k) => k !== "take-closed");
+const TOUR_ORDER = Object.keys(TOUR_STEPS);
 const TAB_LABEL = Object.fromEntries([...$$(".tabs button[data-view]")].map((b) => [b.dataset.view, b.textContent.replace(/\d+/g, "").trim()]));
-const tour = { apptId: null, raf: 0 };
+const tour = { raf: 0, key: "", scrolled: false, blink: 0 };
 
 function tourNext() {
   const t = tourGet();
@@ -1566,8 +1599,15 @@ function tourNext() {
   if (t?.step === "appt-states") closeDrawer();
   tourSet({ step: TOUR_ORDER[i + 1] ?? "end" });
 }
+/** Lleva a la pestaña del chat sin recargarla (si ya está abierta solo la trae al frente). */
 function tourOpenChat() {
-  window.open(`/?clinica=${encodeURIComponent(state.clinic ?? "")}&recorrido=1`, "chat-demo");
+  const url = `/?clinica=${encodeURIComponent(state.clinic ?? "")}&recorrido=1`;
+  const w = window.open("", "chat-demo");
+  try {
+    if (!w) return;
+    if (w.location.href === "about:blank") w.location.href = url;
+    w.focus();
+  } catch { window.open(url, "chat-demo"); }
 }
 
 /** Capa que oscurece la pantalla y deja libre solo el elemento señalado (y la tarjeta). */
@@ -1586,54 +1626,98 @@ function tourRender() {
   const t = tourGet();
   const card0 = $("#tour");
   if (!t || t.clinic !== state.clinic || t.step === "fin") {
-    card0?.remove(); $("#tour-layer")?.remove(); cancelAnimationFrame(tour.raf);
-    document.title = document.title.replace(/^👉 Volvé acá · /, "");
+    card0?.remove(); $("#tour-layer")?.remove(); cancelAnimationFrame(tour.raf); tourBlink(false);
     return;
   }
+  window.name = "panel-demo"; // así el chat puede traer esta pestaña al frente sin recargarla
   // «chat-done»: ya reservó en el chat; mientras no vuelva a esta pestaña se sigue mostrando el aviso del chat.
-  let step = t.step === "chat-done" ? "chat-book" : TOUR_STEPS[t.step] ? t.step : "welcome";
-  if (step === "take" && state.openConv === t.conv && state.convState === "cerrada") step = "take-closed";
+  const step = t.step === "chat-done" ? "chat-book" : TOUR_STEPS[t.step] ? t.step : "welcome";
   // La conversación del recorrido puede estar cerrada (el asistente cierra al reservar): se listan todas.
   if (step === "inbox-open" && state.view === "bandeja" && state.convFilter !== "todas") {
     state.convFilter = "todas"; state.showMore = true; loadInbox().catch(() => {});
   }
-  const s = TOUR_STEPS[step];
+  const def = TOUR_STEPS[step];
+  const s = def.get(t);
   // Fuera de lugar: primero hay que ir a la sección del paso (se señala la pestaña del menú).
-  const navTo = s.view && state.view !== s.view ? s.view : null;
+  const navTo = def.view && state.view !== def.view ? def.view : null;
   const card = card0 ?? Object.assign(document.createElement("div"), { id: "tour", className: "tour" });
   if (!card0) { card.setAttribute("role", "dialog"); card.setAttribute("aria-live", "polite"); card.setAttribute("aria-label", "Recorrido guiado"); document.body.appendChild(card); }
-  const n = TOUR_ORDER.indexOf(step === "take-closed" ? "take" : step);
+  const n = TOUR_ORDER.indexOf(step);
   const title = navTo ? `Andá a «${TAB_LABEL[navTo] ?? navTo}»` : s.title;
   const text = navTo ? `Tocá «${TAB_LABEL[navTo] ?? navTo}» en el menú de arriba para seguir.` : s.text;
   const btn = navTo ? "" : s.next ? '<button class="btn small" data-tour="next">Siguiente</button>'
-    : s.action ? `<button class="btn small${CHAT_STEPS.has(step) ? " ghost" : ""}" data-tour="${s.action[1]}">${esc(s.action[0])}</button>` : "";
+    : s.action ? `<button class="btn small${CHAT_STEPS.has(step) ? " pulse" : ""}" data-tour="${s.action[1]}">${esc(s.action[0])}</button>` : "";
   card.innerHTML = `
     <div class="tour-top"><span class="hint">Recorrido · ${n + 1} de ${TOUR_ORDER.length}</span></div>
     <h3>${esc(title)}</h3>
     ${text.split("\n\n").map((p) => `<p${p === CLARIFY ? ' class="tour-clarify"' : ""}>${esc(p)}</p>`).join("")}
     ${btn ? `<div class="btn-row">${btn}</div>` : ""}`;
-  card.dataset.step = step;
   tour.target = navTo ? () => $(`.tabs [data-view="${navTo}"]`) : s.target ? (typeof s.target === "function" ? s.target : () => $(s.target)) : null;
-  tour.chatStep = CHAT_STEPS.has(step);
-  // Si el paso es en la otra pestaña y esta queda a la vista, el título invita a volver cuando corresponde.
-  document.title = document.title.replace(/^👉 Volvé acá · /, "");
-  if (step === "agenda" && !navTo) tourFocusAppointment().catch(() => {});
+  tour.big = !navTo && !!s.big;
+  tour.navTo = navTo;
+  // Cada vez que cambia lo que hay que mirar, la página se desplaza sola hasta ahí.
+  const key = `${step}|${navTo ?? ""}|${title}`;
+  if (key !== tour.key) { tour.key = key; tour.scrolled = false; }
+  tour.step = navTo ? null : step;
+  if (!navTo) tourPrepare(step, t);
   cancelAnimationFrame(tour.raf);
   tourFollow();
+}
+
+/** Deja lista la pantalla del paso: el turno en la agenda, la ausencia y el precio completados. */
+function tourPrepare(step, t) {
+  // Pasos sobre la conversación del recorrido: si no está abierta (p. ej. tras recargar), se abre sola.
+  if (["take", "reply", "back-bot", "profile"].includes(step) && t.conv && state.openConv !== t.conv && !tour.opening) {
+    tour.opening = true;
+    openConv(t.conv).finally(() => { tour.opening = false; tourRender(); });
+  }
+  if (step === "agenda") tourFocusAppointment().catch(() => {});
+  // Se cerró el detalle del turno (o se recargó la página): se vuelve a pedir que lo abra.
+  if (step === "appt-states" && !$("#drawer").classList.contains("show")) tourSet({ step: "agenda" });
+  if (step === "profesionales" && !t.excDone) {
+    const a = tourAppt();
+    const f = $("#exc-form").elements;
+    if (a && f.professionalId.querySelector(`option[value="${CSS.escape(a.professionalId)}"]`) && !f.reason.value) {
+      $('#exc-kind [data-f="dia"]')?.click();
+      f.professionalId.value = a.professionalId;
+      f.fromDate.value = a.date;
+      f.reason.value = "Curso de actualización";
+    }
+  }
+  if (step === "aprendizaje" && !t.kb) {
+    const row = [...$$("#kb-treatments .row-t")].find((r) => /limpieza/i.test(r.querySelector('[data-k="name"]').value));
+    const price = row?.querySelector('[data-k="price"]');
+    if (price && !price.classList.contains("tour-mark")) { price.value = "USD 45"; price.classList.add("tour-mark"); }
+  }
+  if (step === "aprendizaje" && t.kb === "saved") {
+    const input = $("#tester-text");
+    if (input && !input.value && !tour.testerFilled) { input.value = "¿Cuánto sale la limpieza?"; tour.testerFilled = true; }
+  }
 }
 
 /** Cada cuadro: ubica el hueco sobre el elemento señalado y la tarjeta donde no lo tape. */
 function tourFollow() {
   const card = $("#tour");
   if (!card) return;
+  // Las secciones cargan sus datos después de mostrarse: se reintenta dejar lista la pantalla.
+  if (tour.step && Date.now() - (tour.prepAt ?? 0) > 500) { tour.prepAt = Date.now(); tourPrepare(tour.step, tourGet() ?? {}); }
   const layer = tourLayer();
   const el = tour.target?.();
   const hole = $(".tl-hole", layer);
   const W = innerWidth, H = innerHeight, pad = 6;
   let r = null;
-  if (el && el.offsetParent !== null) {
+  if (visible(el)) {
     const b = el.getBoundingClientRect();
-    if (b.width && b.height) r = { x: Math.max(0, b.left - pad), y: Math.max(0, b.top - pad), w: Math.min(W, b.width + pad * 2), h: Math.min(H, b.height + pad * 2) };
+    // Desplazamiento automático: arriba del todo para el menú; al centro (o al principio, si es alto) para el resto.
+    if (!tour.scrolled) {
+      tour.scrolled = true;
+      if (tour.navTo) scrollTo({ top: 0, behavior: "smooth" });
+      else if (b.top < 70 || b.bottom > H - 20) el.scrollIntoView({ block: b.height > H * 0.7 ? "start" : "center", behavior: "smooth" });
+    }
+    // Solo la parte visible del elemento (puede ser más alto que la pantalla).
+    const top = Math.max(0, b.top - pad), bottom = Math.min(H, b.bottom + pad);
+    const left = Math.max(0, b.left - pad), right = Math.min(W, b.right + pad);
+    if (bottom > top && right > left) r = { x: left, y: top, w: right - left, h: bottom - top };
   }
   layer.classList.toggle("no-target", !r);
   if (r) {
@@ -1643,36 +1727,45 @@ function tourFollow() {
     set("b", { left: "0", top: `${r.y + r.h}px`, width: "100%", height: `${Math.max(0, H - r.y - r.h)}px` });
     set("l", { left: "0", top: `${r.y}px`, width: `${r.x}px`, height: `${r.h}px` });
     set("r", { left: `${r.x + r.w}px`, top: `${r.y}px`, width: `${Math.max(0, W - r.x - r.w)}px`, height: `${r.h}px` });
-    if (!tour.scrolled && (b0(el).top < 60 || b0(el).bottom > H - 40)) { el.scrollIntoView({ block: "center", behavior: "smooth" }); }
-    tour.scrolled = true;
   }
-  // Tarjeta: abajo a la derecha, salvo que tape el elemento; entonces prueba las otras esquinas.
+  // Tarjeta: en la esquina que menos tape el elemento señalado.
   const cw = card.offsetWidth, ch = card.offsetHeight, m = 20;
   const spots = [[W - cw - m, H - ch - m], [m, H - ch - m], [W - cw - m, m + 60], [m, m + 60]];
-  const free = spots.find(([x, y]) => !r || x + cw < r.x || x > r.x + r.w || y + ch < r.y || y > r.y + r.h) ?? spots[0];
-  card.style.left = `${Math.max(8, free[0])}px`;
-  card.style.top = `${Math.max(8, free[1])}px`;
+  const overlap = ([x, y]) => !r ? 0 : Math.max(0, Math.min(x + cw, r.x + r.w) - Math.max(x, r.x)) * Math.max(0, Math.min(y + ch, r.y + r.h) - Math.max(y, r.y));
+  const best = tour.big ? spots[0] : spots.reduce((a, s) => (overlap(s) < overlap(a) ? s : a));
+  card.style.left = `${Math.max(8, best[0])}px`;
+  card.style.top = `${Math.max(8, best[1])}px`;
   tour.raf = requestAnimationFrame(tourFollow);
 }
-const b0 = (el) => el.getBoundingClientRect();
 
 /** Paso de la agenda: abre el día del turno reservado en el chat, en la vista por profesional. */
 async function tourFocusAppointment() {
   const conv = tourGet()?.conv;
   if (!conv || tour.loadingAppt) return;
-  if (tour.apptId && state.agDays === 1 && state.agenda?.appointments.some((a) => a.id === tour.apptId)) return;
+  const a0 = tourAppt();
+  if (a0 && state.agDays === 1 && state.agenda?.appointments.some((a) => a.id === a0.id)) return;
   tour.loadingAppt = true;
   try {
     const c = await api(`/conversation/${encodeURIComponent(conv)}`);
     const a = c.appointments.filter((x) => ["confirmada", "pendiente"].includes(x.status)).at(-1) ?? c.appointments.at(-1);
     if (!a) return;
-    tour.apptId = a.id;
     state.agDays = 1;
     state.weekFrom = dayKeyOf(a.start);
     for (const b of $$("#ag-mode button")) b.classList.toggle("on", b.dataset.f === "1");
     await loadAgenda();
-    tour.scrolled = false;
+    const full = state.agenda?.appointments.find((x) => x.id === a.id);
+    tourSet({ appt: { id: a.id, professionalId: full?.professionalId ?? null, date: dayKeyOf(a.start) } });
   } finally { tour.loadingAppt = false; }
+}
+
+/** Título que parpadea en esta pestaña cuando hay que volver a ella. */
+function tourBlink(on) {
+  clearInterval(tour.blink);
+  const base = document.title.replace(/^👉 Volvé acá · /, "");
+  document.title = base;
+  if (!on) return;
+  let alt = false;
+  tour.blink = setInterval(() => { alt = !alt; document.title = alt ? `👉 Volvé acá · ${base}` : base; }, 900);
 }
 
 // Acciones que hacen avanzar el recorrido (las disparan la bandeja, la agenda y el menú).
@@ -1685,21 +1778,24 @@ addEventListener("tour:act", (e) => {
   if (t.step === "back-bot" && e.detail.act === "release") tourSet({ step: "profile" });
 });
 addEventListener("tour:reply", () => { const t = tourGet(); if (tourActive() && t.step === "reply" && state.openConv === t.conv) tourSet({ step: "chat-see" }); });
-addEventListener("tour:appt", (e) => { const t = tourGet(); if (tourActive() && t.step === "agenda" && e.detail.id === tour.apptId) tourSet({ step: "appt-states" }); });
+addEventListener("tour:appt", (e) => { const t = tourGet(); if (tourActive() && t.step === "agenda" && e.detail.id === tourAppt()?.id) tourSet({ step: "appt-states" }); });
+addEventListener("tour:exception", () => { const t = tourGet(); if (tourActive() && t.step === "profesionales") tourSet({ excDone: true }); });
+addEventListener("tour:kb-saved", () => { const t = tourGet(); if (tourActive() && t.step === "aprendizaje" && !t.kb) tourSet({ kb: "saved" }); });
+addEventListener("tour:tester", () => { const t = tourGet(); if (tourActive() && t.step === "aprendizaje" && t.kb === "saved") tourSet({ kb: "asked" }); });
 addEventListener("tour:conv-state", () => { if (tourActive()) tourRender(); });
-addEventListener("tour:view", () => { if (tourActive()) { tour.scrolled = false; tourRender(); } });
+addEventListener("tour:view", () => { if (tourActive()) tourRender(); });
+// El botón «Ficha» abre el panel lateral: el paso pasa a señalar la ficha.
+$("#show-profile").addEventListener("click", () => setTimeout(() => tourActive() && tourRender(), 350));
 // La otra pestaña cambió el paso (reservó el turno, vio el mensaje de recepción…).
-addEventListener("storage", (e) => { if (e.key === TOUR_KEY) { tour.scrolled = false; tourRender(); tourBackHere(); } });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) tourBackHere(); });
+addEventListener("storage", (e) => { if (e.key === TOUR_KEY) { tourRender(); tourBackHere(); } });
+document.addEventListener("visibilitychange", () => tourBackHere());
 /** Al volver a esta pestaña después de reservar, la bandeja ya muestra la conversación. */
 function tourBackHere() {
   const t = tourGet();
-  if (!tourActive()) return;
-  // Con la pestaña oculta solo se avisa en el título; el paso avanza cuando la persona vuelve.
-  if (document.hidden) {
-    if (["chat-done", "back-bot"].includes(t.step) && !document.title.startsWith("👉")) document.title = `👉 Volvé acá · ${document.title}`;
-    return;
-  }
+  if (!tourActive()) return tourBlink(false);
+  // Con la pestaña oculta solo se avisa en el título (parpadea); el paso avanza cuando la persona vuelve.
+  if (document.hidden) return tourBlink(["chat-done", "back-bot"].includes(t.step));
+  tourBlink(false);
   if (t.step === "chat-done") {
     state.convFilter = "todas";
     state.showMore = true;
@@ -1714,6 +1810,7 @@ $("body").addEventListener("click", (e) => {
   const a = b.dataset.tour;
   if (a === "open-chat") { tourOpenChat(); if (tourGet()?.step === "welcome") tourSet({ step: "chat-book", since: new Date().toISOString() }); }
   if (a === "next") tourNext();
+  if (a === "kb-save") $("#kb-form").requestSubmit();
   if (a === "finish") { tourSet({ step: "fin" }); toast("¡Gracias por recorrer la demo!"); }
 });
 

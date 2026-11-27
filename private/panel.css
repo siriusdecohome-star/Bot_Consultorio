@@ -477,3 +477,7 @@ code { background: var(--panel2); border: 1px solid var(--line); border-radius: 
 .card.folded > .card-head { margin-bottom: 0; }
 /* Aprendizaje: Guardar también al final del formulario */
 .kb-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+/* Recorrido: botón que invita a ir a la otra pestaña y dato cambiado por el recorrido */
+.tour .btn.pulse { animation: tour-btn 1.4s ease-in-out infinite; }
+@keyframes tour-btn { 50% { box-shadow: 0 0 0 6px #25d36633; } }
+.kb input.tour-mark { border-color: var(--lime); box-shadow: 0 0 0 3px #c8f25a44; }
